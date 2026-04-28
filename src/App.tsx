@@ -19,10 +19,13 @@ import {
   CheckCircle2,
   Bell,
   Check,
-  ExternalLink
+  ExternalLink,
+  Share2,
+  Gift,
+  Copy
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { doc, setDoc, updateDoc, serverTimestamp, onSnapshot, increment } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, serverTimestamp, onSnapshot, increment, query, collection, where, getDocs, limit } from 'firebase/firestore';
 
 // --- Types ---
 interface UserProfile {
@@ -33,6 +36,9 @@ interface UserProfile {
   dailyStreak: number;
   lastDailyClaim: any;
   tasksCompleted: string[];
+  referralsCount: number;
+  referralEarnings: number;
+  invitedBy: string | null;
 }
 
 const DAILY_REWARDS = [0.05, 0.06, 0.07, 0.08, 0.10, 0.12, 0.20];
@@ -122,11 +128,40 @@ export default function App() {
                       balance: data.balance || 0,
                       dailyStreak: data.dailyStreak || 0,
                       lastDailyClaim: data.lastDailyClaim,
-                      tasksCompleted: data.tasksCompleted || []
+                      tasksCompleted: data.tasksCompleted || [],
+                      referralsCount: data.referralsCount || 0,
+                      referralEarnings: data.referralEarnings || 0,
+                      invitedBy: data.invitedBy || null
                     });
                     setLoading(false);
                   } else {
                     try {
+                      const startParam = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
+                      let inviterIdStr = null;
+                      
+                      // Process Referral
+                      if (startParam && parseInt(startParam) !== user.id) {
+                         try {
+                           const q = query(collection(db, "users"), where("telegramId", "==", parseInt(startParam)), limit(1));
+                           const querySnapshot = await getDocs(q);
+                           if (!querySnapshot.empty) {
+                             const inviterDoc = querySnapshot.docs[0];
+                             inviterIdStr = inviterDoc.id;
+                             
+                             // Reward the inviter ($0.25)
+                             await updateDoc(doc(db, "users", inviterDoc.id), {
+                               balance: increment(0.25),
+                               referralsCount: increment(1),
+                               referralEarnings: increment(0.25),
+                               updatedAt: serverTimestamp()
+                             });
+                             console.log("Referral rewarded to:", inviterIdStr);
+                           }
+                         } catch (refErr) {
+                            console.error("Referral processing error:", refErr);
+                         }
+                      }
+
                       const initialProfile = {
                         telegramId: user.id,
                         username: identity.username,
@@ -135,6 +170,9 @@ export default function App() {
                         dailyStreak: 0,
                         lastDailyClaim: null,
                         tasksCompleted: [],
+                        referralsCount: 0,
+                        referralEarnings: 0,
+                        invitedBy: inviterIdStr,
                         updatedAt: serverTimestamp()
                       };
                       await setDoc(doc(db, userDocPath), initialProfile);
@@ -293,6 +331,24 @@ export default function App() {
     }
   };
 
+  const referralLink = profile ? `https://t.me/Madbottherbot?startapp=${profile.telegramId}` : '';
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(referralLink);
+    try {
+      (window as any).Telegram?.WebApp?.showAlert('Referral link copied to clipboard!');
+      (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
+    } catch {
+      alert('Copied!');
+    }
+  };
+
+  const handleShare = () => {
+    const text = encodeURIComponent("Join this bot and earn rewards! 🚀");
+    const url = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${text}`;
+    (window as any).Telegram?.WebApp?.openTelegramLink(url);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0D121F]">
@@ -307,10 +363,10 @@ export default function App() {
       <header className="px-6 pt-6 pb-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight">
-            {activeTab === 'home' ? `Hello, ${userData?.username || 'User'}!` : 'Tasks'}
+            {activeTab === 'home' ? `Hello, ${userData?.username || 'User'}!` : activeTab === 'tasks' ? 'Tasks' : 'Invite'}
           </h1>
           <p className="text-sm text-[#A0AEC0] mt-0.5">
-            {activeTab === 'home' ? "Let's earn some money today!" : "Complete tasks to earn more"}
+            {activeTab === 'home' ? "Let's earn some money today!" : activeTab === 'tasks' ? "Complete tasks to earn more" : "Refer friends to get paid"}
           </p>
         </div>
         <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#5D5FEF] to-[#8B5CF6] flex items-center justify-center border border-white/10 shadow-lg shadow-[#5D5FEF]/10 p-0.5">
@@ -381,7 +437,7 @@ export default function App() {
               </div>
             </section>
           </>
-        ) : (
+        ) : activeTab === 'tasks' ? (
           <div className="space-y-6">
             {/* Daily Check-in Card */}
             <section className="stats-card rounded-3xl p-6 bg-gradient-to-b from-white/[0.05] to-transparent">
@@ -479,6 +535,76 @@ export default function App() {
                </div>
             </div>
           </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Referral Stats Card */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="gradient-card rounded-[32px] p-8 text-white relative overflow-hidden"
+            >
+               <div className="relative z-10 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center mb-4 backdrop-blur-md">
+                    <Gift className="w-8 h-8 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-1">Invite & Earn</h2>
+                  <p className="text-sm opacity-80 max-w-[200px]">Get $0.25 for every friend who joins</p>
+                  
+                  <div className="grid grid-cols-2 gap-4 w-full mt-8">
+                    <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
+                      <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Total Invites</p>
+                      <p className="text-2xl font-black mt-1">{profile?.referralsCount || 0}</p>
+                    </div>
+                    <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
+                      <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Earnings</p>
+                      <p className="text-2xl font-black mt-1 text-green-400">${profile?.referralEarnings.toFixed(2) || '0.00'}</p>
+                    </div>
+                  </div>
+               </div>
+
+               {/* Decorative Circles */}
+               <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
+               <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-[#8B5CF6]/20 rounded-full blur-3xl" />
+            </motion.div>
+
+            {/* Link Box */}
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-[#A0AEC0] ml-1 uppercase tracking-widest">Your Referral Link</label>
+              <div className="relative">
+                <input 
+                  readOnly 
+                  value={referralLink}
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-sm text-white pr-14 focus:outline-none focus:border-[#5D5FEF]/50 transition-all font-mono"
+                />
+                <button 
+                  onClick={handleCopyLink}
+                  className="absolute right-2 top-2 bottom-2 w-10 bg-[#5D5FEF] rounded-xl flex items-center justify-center text-white active:scale-95 transition-transform"
+                >
+                  <Copy size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Share Menu */}
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={handleShare}
+              className="w-full h-14 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-3 shadow-lg"
+            >
+              <Share2 size={20} />
+              <span>Share Link</span>
+            </motion.button>
+
+            <div className="stats-card rounded-2xl p-5 border border-white/5">
+               <h5 className="text-sm font-bold flex items-center gap-2 mb-2">
+                 <Bell size={14} className="text-[#5D5FEF]" />
+                 How it works
+               </h5>
+               <p className="text-xs text-[#A0AEC0] leading-relaxed">
+                 Send your referral link to your friends. Once they open the app, we'll verify them and credit your account automatically. No limits on invitations!
+               </p>
+            </div>
+          </div>
         )}
       </main>
 
@@ -487,7 +613,7 @@ export default function App() {
         <div className="max-w-md mx-auto flex items-center justify-between">
           <NavItem icon={<Home />} label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
           <NavItem icon={<Zap />} label="Tasks" active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} />
-          <NavItem icon={<Users />} label="Refer" active={activeTab === 'refer'} onClick={() => setActiveTab('refer')} />
+          <NavItem icon={<Users />} label="Invite" active={activeTab === 'invite'} onClick={() => setActiveTab('invite')} />
           <NavItem icon={<Wallet />} label="Wallet" active={activeTab === 'wallet'} onClick={() => setActiveTab('wallet')} />
           <NavItem icon={<UserIcon />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
         </div>
