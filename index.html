@@ -21,47 +21,38 @@
             // Force version to a high value
             const highVersion = '10.0';
             
-            const forceProperty = (obj, prop, value, isGetter = false) => {
-              try {
-                const descriptor = Object.getOwnPropertyDescriptor(obj, prop);
-                if (descriptor && !descriptor.configurable) {
-                   // If not configurable, we can't redefine it, but maybe we can set it if it's writable
-                   if (descriptor.writable) {
-                     obj[prop] = value;
-                   }
-                   return;
-                }
-                
-                const newDescriptor = isGetter ? {
-                  get: function() { return value; },
-                  set: function() {},
-                  configurable: true,
-                  enumerable: true
-                } : {
-                  value: value,
-                  writable: false,
-                  configurable: true,
-                  enumerable: true
-                };
-                Object.defineProperty(obj, prop, newDescriptor);
-              } catch(e) {}
-            };
+            // Redefine properties even if they are already set
+            Object.defineProperty(wa, 'version', {
+              get: function() { return highVersion; },
+              set: function() {},
+              configurable: true,
+              enumerable: true
+            });
 
-            forceProperty(wa, 'version', highVersion, true);
-            forceProperty(wa, 'isVersionAtLeast', function() { return true; }, false);
-            forceProperty(wa, 'CloudStorage', mockStorage, true);
+            wa.isVersionAtLeast = function() { return true; };
+            wa._isVersionAtLeast = function() { return true; };
+            
+            Object.defineProperty(wa, 'CloudStorage', {
+              get: function() { return mockStorage; },
+              set: function() {},
+              configurable: true,
+              enumerable: true
+            });
 
-            // Also mock initDataUnsafe version
             if (wa.initDataUnsafe) {
               wa.initDataUnsafe.version = highVersion;
             }
-            
-            // Mock version-check internally if possible
-            if (wa._isVersionAtLeast) {
-              wa._isVersionAtLeast = function() { return true; };
-            }
           } catch(e) {}
         }
+
+        // Silence the specific error message if it's still being logged
+        var _warn = console.warn;
+        console.warn = function() {
+          if (arguments[0] && typeof arguments[0] === 'string' && arguments[0].includes('CloudStorage is not supported')) {
+            return;
+          }
+          _warn.apply(console, arguments);
+        };
 
         // Intercept Telegram object creation and properties
         var _tg = window.Telegram;
@@ -70,7 +61,6 @@
           _tg = v;
           if (_tg.WebApp) patch(_tg.WebApp);
           else {
-            // If WebApp not yet there, try to catch it
             var _wa;
             Object.defineProperty(_tg, 'WebApp', {
               get: function() { return _wa; },
