@@ -17,50 +17,93 @@
 
         function patch(wa) {
           try {
+            if (!wa) return;
             // Force version to a high value
-            Object.defineProperty(wa, 'version', {
-              get: function() { return '8.0'; },
-              set: function() {},
-              configurable: true,
-              enumerable: true
-            });
+            const highVersion = '10.0';
+            
+            const forceProperty = (obj, prop, value, isGetter = false) => {
+              try {
+                const descriptor = Object.getOwnPropertyDescriptor(obj, prop);
+                if (descriptor && !descriptor.configurable) {
+                   // If not configurable, we can't redefine it, but maybe we can set it if it's writable
+                   if (descriptor.writable) {
+                     obj[prop] = value;
+                   }
+                   return;
+                }
+                
+                const newDescriptor = isGetter ? {
+                  get: function() { return value; },
+                  set: function() {},
+                  configurable: true,
+                  enumerable: true
+                } : {
+                  value: value,
+                  writable: false,
+                  configurable: true,
+                  enumerable: true
+                };
+                Object.defineProperty(obj, prop, newDescriptor);
+              } catch(e) {}
+            };
 
-            // Mock isVersionAtLeast to always return true
-            wa.isVersionAtLeast = function() { return true; };
+            forceProperty(wa, 'version', highVersion, true);
+            forceProperty(wa, 'isVersionAtLeast', function() { return true; }, false);
+            forceProperty(wa, 'CloudStorage', mockStorage, true);
 
-            // Force CloudStorage
-            Object.defineProperty(wa, 'CloudStorage', {
-              get: function() { return mockStorage; },
-              set: function() {},
-              configurable: true,
-              enumerable: true
-            });
+            // Also mock initDataUnsafe version
+            if (wa.initDataUnsafe) {
+              wa.initDataUnsafe.version = highVersion;
+            }
+            
+            // Mock version-check internally if possible
+            if (wa._isVersionAtLeast) {
+              wa._isVersionAtLeast = function() { return true; };
+            }
           } catch(e) {}
         }
 
-        // Intercept Telegram object creation
+        // Intercept Telegram object creation and properties
         var _tg = window.Telegram;
+        function setupTG(v) {
+          if (!v) return;
+          _tg = v;
+          if (_tg.WebApp) patch(_tg.WebApp);
+          else {
+            // If WebApp not yet there, try to catch it
+            var _wa;
+            Object.defineProperty(_tg, 'WebApp', {
+              get: function() { return _wa; },
+              set: function(w) {
+                _wa = w;
+                if (w) patch(w);
+              },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        }
+
         Object.defineProperty(window, 'Telegram', {
           get: function() { return _tg; },
-          set: function(v) {
-            _tg = v;
-            if (_tg && _tg.WebApp) patch(_tg.WebApp);
-          },
+          set: function(v) { setupTG(v); },
           configurable: true,
           enumerable: true
         });
 
-        // Polling as safety backup
+        if (window.Telegram) setupTG(window.Telegram);
+
+        // Polling as ultimate safety
         var interval = setInterval(function() {
           if (window.Telegram && window.Telegram.WebApp) {
             patch(window.Telegram.WebApp);
           }
-        }, 10);
-        setTimeout(function() { clearInterval(interval); }, 10000); // 10 seconds polling
+        }, 5);
+        setTimeout(function() { clearInterval(interval); }, 15000);
       })();
     </script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src='https://libtl.com/sdk.js' data-zone='10937696' data-sdk='show_10937696'></script>
+    <script src='//libtl.com/sdk.js' data-zone='10937696' data-sdk='show_10937696'></script>
   </head>
   <body>
     <div id="root"></div>

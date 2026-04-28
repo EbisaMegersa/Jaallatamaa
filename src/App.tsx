@@ -123,9 +123,6 @@ export default function App() {
             setUserData({ id: 0, username: 'Guest' });
             setLoading(false);
           }
-
-          // Ad SDK initialization (Silent - no auto-trigger)
-          console.log("Ad SDK script loaded and ready for interaction.");
         } else {
           setUserData({ id: 0, username: 'Guest' });
           setLoading(false);
@@ -146,34 +143,12 @@ export default function App() {
     
     console.log("Starting ad watch...");
     setIsWatching(true);
-    
-    // Trigger Ad only on user interaction
-    if (typeof (window as any).show_10937696 === 'function') {
-      try {
-        console.log("Calling Ad SDK on-demand...");
-        (window as any).show_10937696({
-          type: 'rewarded', // Using rewarded type for better user experience/payout
-          onDetail: (event: any) => {
-            console.log("Ad Event:", event.type);
-          }
-        });
-      } catch (err) {
-        console.error("Ad SDK trigger error:", err);
-      }
-    }
-    
-    // Rewards increment
-    // We wait 7 seconds to simulate the ad watching time
-    setTimeout(async () => {
-      if (!auth.currentUser) {
-        setIsWatching(false);
-        return;
-      }
+
+    const rewardUser = async () => {
+      if (!auth.currentUser) return;
       const userDocPath = `users/${auth.currentUser.uid}`;
       try {
         console.log("Incrementing adsWatched in Firestore...");
-        // Use setDoc with merge: true to avoid "No document to update" if the creation is delayed
-        // Include telegramId and username just in case this call ends up creating the document
         await setDoc(doc(db, userDocPath), {
           telegramId: userData?.id || 0,
           username: userData?.username || 'Guest',
@@ -182,7 +157,6 @@ export default function App() {
         }, { merge: true });
         console.log("Increment successful!");
         
-        // Haptic feedback
         try {
           (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
         } catch {}
@@ -192,7 +166,29 @@ export default function App() {
       } finally {
         setIsWatching(false);
       }
-    }, 7000); // 7 second timer for ad rewards
+    };
+    
+    // Trigger Ad only on user interaction using the specific pop format
+    const adFn = (window as any).show_10937696;
+    if (typeof adFn === 'function') {
+      try {
+        console.log("Calling Ad SDK pop format...");
+        adFn('pop').then(() => {
+          console.log("Ad finished, giving reward...");
+          rewardUser();
+        }).catch((err: any) => {
+          console.error("Ad SDK error:", err);
+          setIsWatching(false);
+        });
+      } catch (err) {
+        console.error("Ad SDK sync error:", err);
+        setIsWatching(false);
+      }
+    } else {
+      console.warn("Ad SDK function not found");
+      // Fallback for demo/testing if SDK is blocked
+      setTimeout(rewardUser, 3000);
+    }
   };
 
   if (loading) {
