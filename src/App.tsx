@@ -3,11 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -50,21 +45,32 @@ export default function App() {
     // Try to get Telegram data
     try {
       const tg = (window as any).Telegram?.WebApp;
-      if (tg?.initDataUnsafe?.user) {
-        setUserData({
-          id: tg.initDataUnsafe.user.id,
-          username: tg.initDataUnsafe.user.username || tg.initDataUnsafe.user.first_name || 'Player',
-          avatar: tg.initDataUnsafe.user.photo_url
-        });
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        // Enable closing confirmation to prevent accidental closing
+        if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
         
-        const saved = localStorage.getItem(`etb_balance_${tg.initDataUnsafe.user.id}`);
-        if (saved) setBalance(parseFloat(saved));
+        if (tg.initDataUnsafe?.user) {
+          const user = tg.initDataUnsafe.user;
+          setUserData({
+            id: user.id,
+            username: user.username || user.first_name || 'Player',
+            avatar: user.photo_url
+          });
+          
+          const saved = localStorage.getItem(`etb_balance_${user.id}`);
+          if (saved) setBalance(parseFloat(saved));
+        } else {
+          // Fallback for browser testing
+          setUserData({ id: 0, username: 'Guest Player' });
+        }
       } else {
         // Fallback for browser testing
         setUserData({ id: 0, username: 'Guest Player' });
       }
     } catch (e) {
-      console.error("Telegram WebApp not found", e);
+      console.error("Telegram WebApp initialization error", e);
       setUserData({ id: 0, username: 'Guest Player' });
     }
   }, []);
