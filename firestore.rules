@@ -13,27 +13,30 @@ service cloud.firestore {
 
     // Validation Blueprint
     function isValidUser(data) {
-      return data.keys().hasAll(['username', 'adsWatched', 'updatedAt', 'telegramId'])
+      return data.keys().hasAll(['username', 'adsWatched', 'updatedAt', 'telegramId', 'balance'])
         && data.username is string && data.username.size() <= 100
         && data.adsWatched is int && data.adsWatched >= 0
+        && data.balance is number && data.balance >= 0
         && data.updatedAt == request.time
-        && (data.telegramId is int || data.telegramId is string);
+        && data.telegramId is int;
     }
 
     match /users/{userId} {
-      // Secure List Queries
-      allow list: if isOwner(userId) && isValidId(userId);
+      allow get: if isSignedIn(); 
+      allow list: if isSignedIn(); // Allow searching for inviters by telegramId
       
-      allow get: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
       
-      allow create: if isOwner(userId) && isValidId(userId);
-      
-      allow update: if isOwner(userId) && isValidId(userId) 
-        && incoming().adsWatched is int 
-        && incoming().updatedAt == request.time
-        && (
-          incoming().adsWatched == existing().adsWatched + 1
-          || incoming().adsWatched == existing().adsWatched // Allow just timestamp updates if needed
+      allow update: if (isOwner(userId) && isValidId(userId) && isValidUser(incoming()))
+        || (
+          // Action: Referral Reward (Granted by a new user to their inviter)
+          isSignedIn() && !isOwner(userId)
+          && incoming().balance == existing().balance + 0.25
+          && (incoming().referralsCount == (existing().get('referralsCount', 0) + 1))
+          && (incoming().total_invites == (existing().get('total_invites', 0) + 1))
+          && (incoming().referralEarnings == (existing().get('referralEarnings', 0.0) + 0.25))
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'referralsCount', 'total_invites', 'referralEarnings', 'updatedAt'])
         );
     }
   }

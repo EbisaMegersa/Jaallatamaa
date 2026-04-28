@@ -2,14 +2,23 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "User profile and ad watch counts",
+      "description": "User profile with balance and referral tracking",
       "type": "object",
       "properties": {
         "username": { "type": "string" },
+        "telegramId": { "type": "integer" },
         "adsWatched": { "type": "integer" },
+        "balance": { "type": "number" },
+        "dailyStreak": { "type": "integer" },
+        "lastDailyClaim": { "type": "string", "format": "date-time" },
+        "tasksCompleted": { "type": "array", "items": { "type": "string" } },
+        "referralsCount": { "type": "integer" },
+        "total_invites": { "type": "integer" },
+        "referralEarnings": { "type": "number" },
+        "invitedBy": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["username", "adsWatched", "updatedAt"]
+      "required": ["username", "telegramId", "adsWatched", "balance", "updatedAt"]
     }
   },
   "firestore": {

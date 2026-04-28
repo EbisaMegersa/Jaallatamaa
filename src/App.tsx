@@ -37,6 +37,7 @@ interface UserProfile {
   lastDailyClaim: any;
   tasksCompleted: string[];
   referralsCount: number;
+  total_invites: number;
   referralEarnings: number;
   invitedBy: string | null;
 }
@@ -130,6 +131,7 @@ export default function App() {
                       lastDailyClaim: data.lastDailyClaim,
                       tasksCompleted: data.tasksCompleted || [],
                       referralsCount: data.referralsCount || 0,
+                      total_invites: data.total_invites || 0,
                       referralEarnings: data.referralEarnings || 0,
                       invitedBy: data.invitedBy || null
                     });
@@ -141,38 +143,46 @@ export default function App() {
                       const startParam = tg.initDataUnsafe?.start_param;
                       let inviterIdStr = null;
                       let inviterName = null;
+
+                      if (startParam) {
+                        console.log(`Referral ID detected: ${startParam}`);
+                      }
                       
                       // 2. Process Referral if user is new
                       if (startParam && parseInt(startParam) !== user.id) {
                          try {
-                           console.log("Processing referral for start_param:", startParam);
-                           const q = query(collection(db, "users"), where("telegramId", "==", parseInt(startParam)), limit(1));
+                           console.log("Deep link detected. Inviter ID:", startParam);
+                           const inviterRef = collection(db, "users");
+                           const q = query(inviterRef, where("telegramId", "==", parseInt(startParam)), limit(1));
                            const querySnapshot = await getDocs(q);
                            
                            if (!querySnapshot.empty) {
                              const inviterDoc = querySnapshot.docs[0];
                              inviterIdStr = inviterDoc.id;
-                             inviterName = inviterDoc.data().username || 'a friend';
+                             const inviterData = inviterDoc.data();
+                             inviterName = inviterData.username || 'a friend';
                              
                              // Reward the inviter ($0.25)
+                             // Increment both referralsCount and total_invites for compatibility
                              await updateDoc(doc(db, "users", inviterDoc.id), {
                                balance: increment(0.25),
                                referralsCount: increment(1),
+                               total_invites: increment(1),
                                referralEarnings: increment(0.25),
                                updatedAt: serverTimestamp()
                              });
-                             console.log("Referral reward granted to inviter:", inviterIdStr);
+                             console.log("SUCCESS: Referral reward granted to inviter:", inviterIdStr);
                              
                              // Notify the new user
                              try {
-                               tg.showAlert(`Welcome! You were invited by ${inviterName} (ID: ${startParam}).`);
+                               tg.showAlert(`Welcome! You were invited by ${inviterName} (ID: ${startParam}). You've helped them earn $0.25!`);
                                tg.HapticFeedback?.notificationOccurred('success');
                              } catch {}
                            } else {
-                             console.log("Inviter document not found for ID:", startParam);
+                             console.warn("FAILED: Inviter document not found in Firestore for telegramId:", startParam);
                            }
                          } catch (refErr) {
-                            console.error("Referral processing error:", refErr);
+                            console.error("CRITICAL: Referral processing failed:", refErr);
                          }
                       }
 
@@ -186,6 +196,7 @@ export default function App() {
                         lastDailyClaim: null,
                         tasksCompleted: [],
                         referralsCount: 0,
+                        total_invites: 0,
                         referralEarnings: 0,
                         invitedBy: inviterIdStr,
                         updatedAt: serverTimestamp()
@@ -569,7 +580,7 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-4 w-full mt-8">
                     <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
                       <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Total Invites</p>
-                      <p className="text-2xl font-black mt-1">{profile?.referralsCount || 0}</p>
+                      <p className="text-2xl font-black mt-1">{profile?.total_invites || 0}</p>
                     </div>
                     <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
                       <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Earnings</p>
