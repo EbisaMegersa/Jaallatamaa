@@ -1,0 +1,6 @@
+{
+  "name": "ETB TAP Game",
+  "description": "A Telegram-style tap-to-earn game where users tap to earn ETB rewards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
