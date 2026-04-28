@@ -1,51 +1,65 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 :root {
   color-scheme: dark;
+  --midnight: #0D121F;
+  --slate-gray: #A0AEC0;
+  --brand-blue: #5D5FEF;
+  --brand-purple: #8B5CF6;
 }
 
 body {
-  background-color: #000000;
+  background-color: var(--midnight);
+  color: white;
   margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
+  font-family: var(--font-sans);
   -webkit-tap-highlight-color: transparent;
-  overflow: hidden;
   touch-action: manipulation;
 }
 
-.bot-card {
-  background: #1c1c1d;
-  border: 1px solid #2c2c2e;
-  border-radius: 12px;
-  padding: 24px;
-  width: 90%;
-  max-width: 340px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+.gradient-card {
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-purple));
+  position: relative;
+  overflow: hidden;
 }
 
-.action-btn {
-  background: #007aff;
-  color: white;
-  font-weight: 600;
-  padding: 12px;
-  border-radius: 8px;
-  width: 100%;
-  text-align: center;
-  margin-top: 20px;
-  transition: background 0.2s;
+.gradient-card::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  right: -10%;
+  width: 150px;
+  height: 150px;
+  background: white;
+  opacity: 0.1;
+  border-radius: 50%;
 }
 
-.action-btn:active {
-  background: #0056b3;
-  transform: scale(0.98);
+.gradient-card::after {
+  content: '';
+  position: absolute;
+  bottom: -30%;
+  left: -5%;
+  width: 200px;
+  height: 200px;
+  background: white;
+  opacity: 0.05;
+  border-radius: 50%;
+}
+
+.nav-blur {
+  background: rgba(13, 18, 31, 0.9);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stats-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 

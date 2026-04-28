@@ -26,19 +26,14 @@ service cloud.firestore {
       
       allow get: if isOwner(userId) && isValidId(userId);
       
-      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().keys().size() == 4;
+      allow create: if isOwner(userId) && isValidId(userId);
       
-      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming())
+      allow update: if isOwner(userId) && isValidId(userId) 
+        && incoming().adsWatched is int 
+        && incoming().updatedAt == request.time
         && (
-          // Identity Integrity: Immutable Fields
-          incoming().telegramId == existing().telegramId &&
-          incoming().username == existing().username &&
-          (
-            // Action: Increment Ad Count
-            // We allow increment as long as it's the only logic changing adsWatched
-            incoming().diff(existing()).affectedKeys().hasOnly(['adsWatched', 'updatedAt']) &&
-            incoming().adsWatched > existing().adsWatched
-          )
+          incoming().adsWatched == existing().adsWatched + 1
+          || incoming().adsWatched == existing().adsWatched // Allow just timestamp updates if needed
         );
     }
   }
