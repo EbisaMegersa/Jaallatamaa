@@ -124,25 +124,8 @@ export default function App() {
             setLoading(false);
           }
 
-          // Initialize Ad SDK with a slight delay to ensure library is fully ready
-          setTimeout(() => {
-            if (typeof (window as any).show_10937696 === 'function') {
-              try {
-                 (window as any).show_10937696({
-                  type: 'inApp',
-                  inAppSettings: {
-                    frequency: 2,
-                    capping: 0.1,
-                    interval: 30,
-                    timeout: 45, 
-                    everyPage: false
-                  }
-                });
-              } catch (adErr) {
-                console.warn("Ad SDK init error:", adErr);
-              }
-            }
-          }, 2000);
+          // Ad SDK initialization (Silent - no auto-trigger)
+          console.log("Ad SDK script loaded and ready for interaction.");
         } else {
           setUserData({ id: 0, username: 'Guest' });
           setLoading(false);
@@ -164,13 +147,18 @@ export default function App() {
     console.log("Starting ad watch...");
     setIsWatching(true);
     
-    // Attempt to show interstitial ad if available
+    // Trigger Ad only on user interaction
     if (typeof (window as any).show_10937696 === 'function') {
       try {
-        console.log("Calling Ad SDK show...");
-        (window as any).show_10937696();
+        console.log("Calling Ad SDK on-demand...");
+        (window as any).show_10937696({
+          type: 'rewarded', // Using rewarded type for better user experience/payout
+          onDetail: (event: any) => {
+            console.log("Ad Event:", event.type);
+          }
+        });
       } catch (err) {
-        console.error("Ad SDK error:", err);
+        console.error("Ad SDK trigger error:", err);
       }
     }
     
