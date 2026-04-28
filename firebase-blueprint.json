@@ -2,13 +2,13 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "User profile with balance and referral tracking",
+      "description": "User profile with points-based balance and referral tracking",
       "type": "object",
       "properties": {
         "username": { "type": "string" },
         "telegramId": { "type": "integer" },
         "adsWatched": { "type": "integer" },
-        "balance": { "type": "number" },
+        "balance": { "type": "number", "description": "Points balance" },
         "dailyStreak": { "type": "integer" },
         "lastDailyClaim": { "type": "string", "format": "date-time" },
         "tasksCompleted": { "type": "array", "items": { "type": "string" } },
@@ -24,7 +24,19 @@
   "firestore": {
     "users/{userId}": {
       "schema": "User",
-      "description": "User documents indexed by Telegram UID"
+      "description": "User profile"
+    },
+    "users/{userId}/referrals/{referredUserId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "joinedAt": { "type": "string", "format": "date-time" },
+          "telegramId": { "type": "integer" },
+          "username": { "type": "string" }
+        },
+        "required": ["joinedAt", "telegramId"]
+      },
+      "description": "List of users referred by this user"
     }
   }
 }

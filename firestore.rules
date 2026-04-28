@@ -23,21 +23,26 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow get: if isSignedIn(); 
-      allow list: if isSignedIn(); // Allow searching for inviters by telegramId
+      allow list: if isSignedIn();
       
       allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
       
       allow update: if (isOwner(userId) && isValidId(userId) && isValidUser(incoming()))
         || (
-          // Action: Referral Reward (Granted by a new user to their inviter)
+          // Action: Referral Reward (50 points)
           isSignedIn() && !isOwner(userId)
-          && incoming().balance == existing().balance + 0.25
+          && incoming().balance == existing().balance + 50
           && (incoming().referralsCount == (existing().get('referralsCount', 0) + 1))
           && (incoming().total_invites == (existing().get('total_invites', 0) + 1))
-          && (incoming().referralEarnings == (existing().get('referralEarnings', 0.0) + 0.25))
+          && (incoming().referralEarnings == (existing().get('referralEarnings', 0.0) + 50))
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'referralsCount', 'total_invites', 'referralEarnings', 'updatedAt'])
         );
+
+      match /referrals/{refId} {
+        allow read: if isOwner(userId);
+        allow create: if isSignedIn() && isValidId(refId);
+      }
     }
   }
 }
