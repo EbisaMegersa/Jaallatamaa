@@ -11,29 +11,41 @@
 }
 
 body {
-  background-color: #050505;
+  background-color: #000000;
   margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
   -webkit-tap-highlight-color: transparent;
   overflow: hidden;
   touch-action: manipulation;
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
+.bot-card {
+  background: #1c1c1d;
+  border: 1px solid #2c2c2e;
+  border-radius: 12px;
+  padding: 24px;
+  width: 90%;
+  max-width: 340px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+.action-btn {
+  background: #007aff;
+  color: white;
+  font-weight: 600;
+  padding: 12px;
+  border-radius: 8px;
+  width: 100%;
+  text-align: center;
+  margin-top: 20px;
+  transition: background 0.2s;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-}
-
-/* Perspective for 3D effects */
-.perspective-1000 {
-  perspective: 1000px;
+.action-btn:active {
+  background: #0056b3;
+  transform: scale(0.98);
 }
 
