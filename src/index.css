@@ -11,38 +11,25 @@
   body {
     @apply m-0 overflow-hidden font-sans text-white antialiased selection:bg-yellow-400/30;
     height: 100vh;
-    background-color: #050505;
-    background-image: 
-      radial-gradient(at 0% 0%, hsla(120,100%,10%,1) 0, transparent 50%), 
-      radial-gradient(at 50% 0%, hsla(120,0%,5%,1) 0, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(120,100%,10%,1) 0, transparent 50%);
+    background-color: #0c0808;
   }
 }
 
 @layer components {
   .glass-card {
-    @apply bg-white/[0.03] backdrop-blur-2xl border border-white/10 shadow-2xl;
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl;
   }
   
-  .reward-glow {
-    @apply shadow-[0_0_50px_rgba(234,179,8,0.1)];
+  .neon-glow {
+    @apply shadow-[0_0_20px_rgba(234,179,8,0.3)];
   }
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(0.98); }
 }
 
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
-
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-slide-up {
-  animation: slide-up 0.5s ease-out forwards;
+.animate-pulse-soft {
+  animation: pulse-soft 3s ease-in-out infinite;
 }

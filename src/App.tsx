@@ -1,281 +1,328 @@
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { PlayCircle, Wallet, User, CheckCircle2, AlertCircle, Info, ChevronRight, Share2 } from 'lucide-react';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence, useAnimationControls } from 'motion/react';
+import { User, Wallet, Play, LogOut, ExternalLink, Zap, TrendingUp, Info } from 'lucide-react';
+
+interface FloatingText {
+  id: number;
+  x: number;
+  y: number;
+  value: string;
+}
 
 declare global {
   interface Window {
-    Telegram?: any;
+    Telegram?: {
+      WebApp: {
+        initDataUnsafe: {
+          user?: {
+            id: number;
+            username?: string;
+            first_name: string;
+          };
+        };
+      };
+    };
   }
 }
 
 export default function App() {
   const [balance, setBalance] = useState(0);
-  const [adsWatched, setAdsWatched] = useState(0);
   const [username, setUsername] = useState('Explorer');
   const [userId, setUserId] = useState<number | null>(null);
-  const [isAdLoading, setIsAdLoading] = useState(false);
-  const [popup, setPopup] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
+  const [showPopup, setShowPopup] = useState(false);
+  const [popupMessage, setPopupMessage] = useState('');
+  const [energy, setEnergy] = useState(100);
+  
+  const tapControls = useAnimationControls();
+  const incrementValue = 0.05; 
+  const maxEnergy = 100;
+  const nextItemId = useRef(0);
 
-  // Constants
-  const REWARD_AMOUNT = 20;
-  const MONETAG_DIRECT_LINK = "https://omg10.com/4/10937706"; 
-
+  // Load user data
   useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.ready();
-      tg.expand();
-      
-      const user = tg.initDataUnsafe?.user;
-      if (user) {
-        const name = user.username ? `@${user.username}` : user.first_name;
+    let retryCount = 0;
+    const maxRetries = 10;
+
+    const initTelegram = () => {
+      const tg = window.Telegram?.WebApp;
+      if (tg && tg.initDataUnsafe?.user) {
+        tg.ready();
+        tg.expand();
+        
+        const tgUser = tg.initDataUnsafe.user;
+        setIsConnected(true);
+        const name = tgUser.username || tgUser.first_name || 'User';
         setUsername(name);
-        setUserId(user.id);
-        fetchServerBalance(user.id);
+        setUserId(tgUser.id);
+
+        const storedBalance = localStorage.getItem(`balance_${tgUser.id}`);
+        if (storedBalance) setBalance(parseFloat(storedBalance));
+        return true;
       }
+      return false;
+    };
+
+    if (!initTelegram()) {
+      const interval = setInterval(() => {
+        retryCount++;
+        if (initTelegram() || retryCount >= maxRetries) {
+          clearInterval(interval);
+        }
+      }, 500);
+      return () => clearInterval(interval);
     }
+
+    // Energy recovery
+    const energyTimer = setInterval(() => {
+      setEnergy((prev) => Math.min(prev + 1, maxEnergy));
+    }, 3000);
+
+    return () => clearInterval(energyTimer);
   }, []);
 
-  const fetchServerBalance = async (uid: number) => {
-    try {
-      const response = await fetch(`/api/user-data/${uid}`);
-      const data = await response.json();
-      setBalance(data.balance);
-    } catch (error) {
-      console.error("Balance fetch failed:", error);
-    }
-  };
-
-  const showPopup = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setPopup({ message, type });
-    setTimeout(() => setPopup(null), 4000);
-  };
-
-  const watchAd = () => {
-    if (isAdLoading) return;
-
-    if (!userId) {
-      showPopup("Notice: Running outside of Telegram. Rewards won't be tracked correctly.", 'info');
-      // We proceed for testing, but warn the user
+  const handleTap = (e: React.TouchEvent | React.MouseEvent) => {
+    if (energy <= 0) {
+      setPopupMessage("Out of energy! Wait for recharge.");
+      setShowPopup(true);
+      setTimeout(() => setShowPopup(false), 2000);
+      return;
     }
 
-    setIsAdLoading(true);
-    showPopup("Opening Monetag Ad... Please wait for return.", 'info');
+    e.preventDefault();
+    tapControls.start({
+      scale: [1, 0.95, 1.05, 1],
+      transition: { duration: 0.1 }
+    });
 
-    // Prepare the URL with the user ID for tracking
-    const separator = MONETAG_DIRECT_LINK.includes('?') ? '&' : '?';
-    const trackingId = userId || 'demo_user';
-    const rewardedUrl = `${MONETAG_DIRECT_LINK}${separator}var=${trackingId}`;
+    const points = 'touches' in e ? Array.from(e.touches) : [{ clientX: e.clientX, clientY: e.clientY }];
+    
+    points.forEach((point) => {
+      const newItem: FloatingText = {
+        id: nextItemId.current++,
+        x: point.clientX,
+        y: point.clientY,
+        value: `+${incrementValue}`
+      };
+      
+      setFloatingTexts((prev) => [...prev, newItem]);
+      setTimeout(() => {
+        setFloatingTexts((prev) => prev.filter((item) => item.id !== newItem.id));
+      }, 800);
+    });
 
-    console.log("Opening Ad URL:", rewardedUrl);
-
-    // Open link logic
-    try {
-      if (window.Telegram?.WebApp && window.Telegram.WebApp.platform !== 'unknown') {
-        window.Telegram.WebApp.openLink(rewardedUrl);
-      } else {
-        // Fallback for browser testing
-        const newWindow = window.open(rewardedUrl, '_blank');
-        if (!newWindow) {
-          showPopup("Popup blocked! Please allow popups for this site.", "error");
-          setIsAdLoading(false);
-          return;
-        }
-      }
-    } catch (e) {
-      console.error("Link capture error", e);
-      setIsAdLoading(false);
-    }
-
-    // Polling logic to see if server got the reward
-    const pollInterval = setInterval(async () => {
-      try {
-        const idToPoll = userId || 'demo_user';
-        // Use a relative path but handle errors gracefully
-        const response = await fetch(`/api/user-data/${idToPoll}`);
-        
-        if (!response.ok) throw new Error("Server response not OK");
-        
-        const data = await response.json();
-        
-        // Use functional comparison to ensure we have the absolute latest state
-        setBalance(prevBalance => {
-          if (data.balance > prevBalance) {
-            handleRewardSuccess(data.balance);
-            clearInterval(pollInterval);
-            setIsAdLoading(false);
-            return data.balance;
-          }
-          return prevBalance;
-        });
-      } catch (err) {
-        // Log locally but don't crash or alert the user, just try again next interval
-        console.warn("Retrying balance check...", err);
-      }
-    }, 4000); // 4 seconds is safer than 3
-
-    // Stop polling after 3 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      if (isAdLoading) {
-        setIsAdLoading(false);
-        showPopup("Ad verification timed out. Check your internet.", "info");
-      }
-    }, 180000);
-  };
-
-  const handleRewardSuccess = (newBalance: number) => {
+    const tapCount = points.length;
+    const newBalance = balance + (incrementValue * tapCount);
     setBalance(newBalance);
-    setAdsWatched(prev => prev + 1);
-    showPopup(`Success! ${REWARD_AMOUNT} points added via Monetag verification.`, 'success');
+    setEnergy((prev) => Math.max(0, prev - tapCount));
+    
+    if (userId) {
+      localStorage.setItem(`balance_${userId}`, newBalance.toFixed(4));
+    }
+  };
+
+  const handleWithdraw = () => {
+    setPopupMessage("Withdrawal System is a few days left! Join our Telegram for updates.");
+    setShowPopup(true);
+  };
+
+  const handleInfo = () => {
+    setPopupMessage("ETB Tap is a decentralized ecosystem rewarding active participants. Mine, hold, and earn.");
+    setShowPopup(true);
   };
 
   return (
-    <div className="flex flex-col h-screen w-full relative px-6 py-8 select-none overflow-hidden font-sans">
-      {/* Mesh Background */}
-      <div className="absolute inset-0 pointer-events-none opacity-20">
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_0%,rgba(34,197,94,0.3),transparent_70%)]" />
+    <div className="flex flex-col items-center h-screen w-full relative bg-[#0a0808] overflow-hidden select-none font-sans">
+      {/* Mesh Background Accents */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[50%] h-[50%] bg-red-900/30 blur-[120px] rounded-full" />
+        <div className="absolute top-[20%] -right-[10%] w-[40%] h-[40%] bg-yellow-900/20 blur-[100px] rounded-full" />
+        <div className="absolute -bottom-[10%] left-[20%] w-[60%] h-[40%] bg-red-600/10 blur-[120px] rounded-full" />
       </div>
 
-      {/* Header */}
-      <motion.header 
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="glass-card rounded-[24px] p-4 flex items-center justify-between mb-8 z-50"
-      >
+      {/* Header Bar */}
+      <header className="w-full px-6 py-4 flex items-center justify-between z-50 bg-black/40 backdrop-blur-md border-b border-white/5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
-            <User className="w-5 h-5 text-white/60" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-red-800 p-[1px] shadow-lg">
+            <div className="w-full h-full rounded-[11px] bg-[#0a0808] flex items-center justify-center">
+              <User className="w-5 h-5 text-red-500" />
+            </div>
           </div>
           <div>
-            <p className="text-[9px] text-white/30 font-mono font-bold tracking-widest uppercase">ID: {userId || '---'}</p>
-            <p className="text-sm font-bold text-white tracking-tight">{username}</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 bg-white/5 px-4 py-2 rounded-2xl border border-white/10">
-          <div className="text-right">
-            <p className="text-[9px] text-yellow-500 font-mono font-bold uppercase">Balance</p>
-            <p className="text-lg font-bold text-white leading-none tracking-tight">
-              {balance} <span className="text-[10px] text-white/30">PTS</span>
-            </p>
-          </div>
-          <Wallet className="w-5 h-5 text-yellow-500" />
-        </div>
-      </motion.header>
-
-      {/* Main Action Area */}
-      <main className="flex-1 flex flex-col items-center justify-center gap-10">
-        <div className="relative group">
-          {/* Animated Glow */}
-          <div className="absolute inset-0 bg-green-600/10 blur-[80px] rounded-full scale-150 animate-pulse" />
-          
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={watchAd}
-            disabled={isAdLoading}
-            className={`w-64 h-64 md:w-72 md:h-72 glass-card rounded-[48px] flex flex-col items-center justify-center p-8 transition-all relative overflow-hidden group border-white/15 outline-none  ${isAdLoading ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-          >
-            {/* Top Shine */}
-            <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
-            
-            <motion.div 
-              animate={isAdLoading ? { rotate: 360 } : {}}
-              transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-              className={`w-24 h-24 rounded-[32px] bg-gradient-to-br from-green-400 to-green-700 flex items-center justify-center shadow-[0_20px_40px_rgba(22,163,74,0.4)] mb-6 group-hover:shadow-[0_20px_50px_rgba(22,163,74,0.6)] transition-all`}
-            >
-              {isAdLoading ? (
-                <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] text-white/40 font-mono font-bold tracking-widest leading-none">AGENT</p>
+              {isConnected ? (
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e]" />
               ) : (
-                <PlayCircle className="w-12 h-12 text-white" />
+                <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
               )}
-            </motion.div>
-            
-            <h2 className="text-3xl font-display font-bold text-white tracking-tight mb-2">Watch Ads</h2>
-            <div className="flex items-center gap-2 px-4 py-1.5 bg-green-500/10 rounded-full border border-green-500/20">
-              <span className="text-green-400 font-mono text-xs font-bold tracking-widest">+{REWARD_AMOUNT} POINTS</span>
-              <ChevronRight className="w-4 h-4 text-green-400" />
             </div>
-
-            {/* Scanning Line overlay when loading */}
-            {isAdLoading && (
-              <motion.div 
-                initial={{ top: "-100%" }}
-                animate={{ top: "100%" }}
-                transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                className="absolute inset-x-0 h-10 bg-gradient-to-b from-transparent via-green-500/10 to-transparent pointer-events-none"
-              />
-            )}
-          </motion.button>
-        </div>
-
-        {/* Counter Stats */}
-        <div className="grid grid-cols-2 gap-4 w-full max-w-xs">
-          <div className="glass-card rounded-3xl p-5 text-center">
-            <p className="text-[10px] text-white/30 font-bold mb-1 uppercase tracking-widest leading-none">Watched</p>
-            <p className="text-2xl font-bold font-mono text-white leading-none">{adsWatched}</p>
-          </div>
-          <div className="glass-card rounded-3xl p-5 text-center">
-            <p className="text-[10px] text-white/30 font-bold mb-1 uppercase tracking-widest leading-none">Status</p>
-            <p className="text-2xl font-bold font-mono text-green-500 leading-none">LIVE</p>
+            <p className="text-sm font-display font-bold text-white leading-tight">{username}</p>
+            {userId && <p className="text-[8px] font-mono text-white/30 tracking-tight">ID: {userId}</p>}
           </div>
         </div>
+
+        <div className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-2xl border border-white/10">
+          <TrendingUp className="w-4 h-4 text-green-400" />
+          <div className="text-right">
+            <p className="text-[9px] text-white/40 font-mono font-bold leading-none">PROFITS</p>
+            <p className="text-xs font-mono font-bold text-white">x1.2</p>
+          </div>
+        </div>
+      </header>
+
+      {/* Balance Section */}
+      <section className="mt-8 flex flex-col items-center z-20">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+          <p className="text-[10px] font-mono font-bold text-yellow-500 tracking-[0.2em]">ETB ECOSYSTEM</p>
+        </div>
+        <h1 className="text-5xl md:text-6xl font-display font-bold flex items-baseline gap-2">
+          {balance.toFixed(2)} 
+          <span className="text-xl text-white/30">ETB</span>
+        </h1>
+      </section>
+
+      {/* Main Interaction Area */}
+      <main className="flex-1 w-full flex flex-col items-center justify-center relative px-6 py-4">
+        <div className="relative group">
+          {/* Outer Ring */}
+          <div className="absolute inset-0 bg-red-600/20 blur-[60px] rounded-full scale-125 animate-pulse-soft" />
+          
+          <motion.div
+            animate={tapControls}
+            className="relative w-64 h-64 md:w-80 md:h-80 cursor-pointer touch-none"
+            onPointerDown={handleTap}
+          >
+            {/* Highly Stylised Coin/Gem */}
+            <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#1a1111] to-[#3a1a1a] border-8 border-white/5 shadow-2xl flex items-center justify-center relative overflow-hidden backdrop-blur-md">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.1),transparent)]" />
+              <div className="z-10 flex flex-col items-center">
+                <span className="text-7xl font-display font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-red-500 to-red-900 drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]">
+                  ETB
+                </span>
+                <div className="mt-2 text-[10px] bg-red-600/20 text-red-500 px-3 py-1 rounded-full font-mono font-bold tracking-widest border border-red-500/20">
+                  TAP TO EARN
+                </div>
+              </div>
+              
+              {/* Inner Glow Lines */}
+              <div className="absolute top-0 left-0 w-full h-full opacity-20">
+                <div className="absolute top-1/2 left-0 w-full h-[1px] bg-white rotate-45" />
+                <div className="absolute top-1/2 left-0 w-full h-[1px] bg-white -rotate-45" />
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Community Link */}
+        <motion.a
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          href="https://t.me/etb_tap_community"
+          target="_blank"
+          className="mt-12 flex items-center gap-3 bg-red-600/10 hover:bg-red-600/20 border border-red-600/30 px-6 py-3 rounded-2xl transition-all duration-300"
+        >
+          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center text-white">
+            <ExternalLink className="w-4 h-4" />
+          </div>
+          <span className="font-display font-bold text-sm text-red-100">Official Community</span>
+        </motion.a>
       </main>
 
-      {/* Verification Footer */}
-      <footer className="mt-8 pt-8 flex items-center justify-between border-t border-white/5 z-10">
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-3.5 h-3.5 text-white/30" />
-            <span className="text-[9px] font-bold uppercase tracking-widest text-white/30">Verified</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Share2 className="w-3.5 h-3.5 text-white/30" />
-            <span className="text-[9px] font-bold uppercase tracking-widest text-white/30">Referral</span>
-          </div>
-        </div>
-        <button className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 hover:bg-white/10 transition-colors">
-          <Info className="w-4 h-4 text-white/40" />
-        </button>
-      </footer>
-
-      {/* Popup Notifications */}
+      {/* Stats and Floating Elements */}
       <AnimatePresence>
-        {popup && (
+        {floatingTexts.map((text) => (
           <motion.div
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 50, opacity: 0, scale: 0.95 }}
-            className={`fixed bottom-10 left-6 right-6 p-4 rounded-2xl border flex items-center gap-4 shadow-2xl z-[100] backdrop-blur-3xl animate-slide-up ${
-              popup.type === 'success' ? 'bg-green-500/10 border-green-500/30 shadow-green-500/10' : 
-              popup.type === 'error' ? 'bg-red-500/10 border-red-500/30 shadow-red-500/10' : 
-              'bg-green-500/10 border-green-500/30 shadow-green-500/10'
-            }`}
+            key={text.id}
+            initial={{ opacity: 1, y: text.y - 20, x: text.x }}
+            animate={{ opacity: 0, y: text.y - 120, scale: 1.5 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="fixed pointer-events-none z-[100] text-red-400 font-display font-bold text-2xl drop-shadow-[0_2px_10px_rgba(255,0,0,0.5)]"
+            style={{ left: text.x - 20, top: text.y - 20 }}
           >
-            <div className={`rounded-xl p-2 flex-shrink-0 ${
-              popup.type === 'success' ? 'bg-green-500/20' : 
-              popup.type === 'error' ? 'bg-red-500/20' : 
-              'bg-green-500/20'
-            }`}>
-              {popup.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : 
-               popup.type === 'error' ? <AlertCircle className="w-5 h-5 text-red-500" /> : 
-               <Info className="w-5 h-5 text-green-500" />}
-            </div>
-            
-            <div className="flex-1">
-              <p className={`font-bold text-xs uppercase tracking-widest ${
-                popup.type === 'success' ? 'text-green-500' : 
-                popup.type === 'error' ? 'text-red-500' : 
-                'text-green-500'
-              }`}>
-                {popup.type === 'success' ? 'Reward Claimed' : 
-                 popup.type === 'error' ? 'Error' : 
-                 'Status'}
-              </p>
-              <p className="text-white font-medium text-xs mt-0.5">
-                {popup.message}
-              </p>
+            {text.value}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
+      {/* Bottom Interface */}
+      <div className="w-full max-w-md px-6 pb-24 z-30">
+        <div className="flex justify-between items-end mb-2">
+          <div className="flex items-center gap-2">
+            <Zap className={`w-4 h-4 ${energy < 20 ? "text-red-500 animate-pulse" : "text-yellow-400"}`} />
+            <span className="text-[11px] font-mono font-bold tracking-widest text-white/60">ENERGY</span>
+          </div>
+          <span className="text-xs font-mono font-bold">{energy}/{maxEnergy}</span>
+        </div>
+        <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
+          <motion.div
+            className={`h-full bg-gradient-to-r ${energy < 20 ? "from-red-600 to-red-400" : "from-yellow-600 to-yellow-400"} shadow-[0_0_10px_rgba(234,179,8,0.3)]`}
+            animate={{ width: `${(energy / maxEnergy) * 100}%` }}
+            transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+          />
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 h-24 bg-black/60 backdrop-blur-xl border-t border-white/5 flex items-center justify-around px-8 pb-4 z-50">
+        <button className="flex flex-col items-center gap-1.5 transition-all text-red-500">
+          <div className="p-3 bg-red-500/10 rounded-2xl border border-red-500/20 shadow-lg">
+            <Play className="w-5 h-5 fill-current" />
+          </div>
+          <span className="text-[9px] font-mono font-black tracking-widest">MINING</span>
+        </button>
+
+        <button 
+          onClick={handleWithdraw}
+          className="flex flex-col items-center gap-1.5 transition-all text-white/40 hover:text-white"
+        >
+          <div className="p-3 bg-white/5 rounded-2xl border border-white/5">
+            <Wallet className="w-5 h-5" />
+          </div>
+          <span className="text-[9px] font-mono font-black tracking-widest">WALLETS</span>
+        </button>
+
+        <button 
+          onClick={handleInfo}
+          className="flex flex-col items-center gap-1.5 transition-all text-white/40 hover:text-white"
+        >
+          <div className="p-3 bg-white/5 rounded-2xl border border-white/5">
+            <Info className="w-5 h-5" />
+          </div>
+          <span className="text-[9px] font-mono font-black tracking-widest">ABOUT</span>
+        </button>
+      </nav>
+
+      {/* Popup Message */}
+      <AnimatePresence>
+        {showPopup && (
+          <motion.div
+            initial={{ y: 200, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 200, opacity: 0 }}
+            className="fixed bottom-0 left-0 right-0 bg-[#1a1111] text-white p-8 pb-12 text-center shadow-[0_-20px_50px_rgba(0,0,0,0.8)] z-[100] rounded-t-[40px] border-t border-red-500/20 glass-card"
+          >
+            <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto mb-6" />
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30 mb-2">
+                <LogOut className="w-8 h-8 text-red-500 rotate-180" />
+              </div>
+              <h2 className="text-xl font-display font-bold">Withdrawal Access</h2>
+              <p className="text-white/60 text-sm max-w-xs">{popupMessage}</p>
+              <button 
+                onClick={() => setShowPopup(false)}
+                className="mt-4 w-full py-4 bg-red-600 rounded-2xl font-display font-bold text-sm shadow-xl"
+              >
+                PROCEED
+              </button>
             </div>
           </motion.div>
         )}
