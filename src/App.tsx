@@ -34,34 +34,57 @@ export default function App() {
   const [balance, setBalance] = useState(0);
   const [username, setUsername] = useState('Explorer');
   const [userId, setUserId] = useState<number | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [showPopup, setShowPopup] = useState(false);
   const [popupMessage, setPopupMessage] = useState('');
   const [energy, setEnergy] = useState(100);
   
   const tapControls = useAnimationControls();
-  const incrementValue = 0.05; // More "crypto" feel with fractional values
+  const incrementValue = 0.05; 
   const maxEnergy = 100;
   const nextItemId = useRef(0);
 
   // Load user data
   useEffect(() => {
-    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-    if (tgUser) {
-      const name = tgUser.username || tgUser.first_name || 'User';
-      setUsername(name);
-      setUserId(tgUser.id);
+    let retryCount = 0;
+    const maxRetries = 10;
 
-      const storedBalance = localStorage.getItem(`balance_${tgUser.id}`);
-      if (storedBalance) setBalance(parseFloat(storedBalance));
+    const initTelegram = () => {
+      const tg = window.Telegram?.WebApp;
+      if (tg && tg.initDataUnsafe?.user) {
+        tg.ready();
+        tg.expand();
+        
+        const tgUser = tg.initDataUnsafe.user;
+        setIsConnected(true);
+        const name = tgUser.username || tgUser.first_name || 'User';
+        setUsername(name);
+        setUserId(tgUser.id);
+
+        const storedBalance = localStorage.getItem(`balance_${tgUser.id}`);
+        if (storedBalance) setBalance(parseFloat(storedBalance));
+        return true;
+      }
+      return false;
+    };
+
+    if (!initTelegram()) {
+      const interval = setInterval(() => {
+        retryCount++;
+        if (initTelegram() || retryCount >= maxRetries) {
+          clearInterval(interval);
+        }
+      }, 500);
+      return () => clearInterval(interval);
     }
 
     // Energy recovery
-    const timer = setInterval(() => {
+    const energyTimer = setInterval(() => {
       setEnergy((prev) => Math.min(prev + 1, maxEnergy));
     }, 3000);
 
-    return () => clearInterval(timer);
+    return () => clearInterval(energyTimer);
   }, []);
 
   const handleTap = (e: React.TouchEvent | React.MouseEvent) => {
@@ -100,7 +123,7 @@ export default function App() {
     setEnergy((prev) => Math.max(0, prev - tapCount));
     
     if (userId) {
-      localStorage.setItem(`balance_${userId}`, newBalance.toString());
+      localStorage.setItem(`balance_${userId}`, newBalance.toFixed(4));
     }
   };
 
@@ -132,8 +155,16 @@ export default function App() {
             </div>
           </div>
           <div>
-            <p className="text-[10px] text-white/40 font-mono font-bold tracking-widest leading-none">AGENT</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] text-white/40 font-mono font-bold tracking-widest leading-none">AGENT</p>
+              {isConnected ? (
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e]" />
+              ) : (
+                <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+              )}
+            </div>
             <p className="text-sm font-display font-bold text-white leading-tight">{username}</p>
+            {userId && <p className="text-[8px] font-mono text-white/30 tracking-tight">ID: {userId}</p>}
           </div>
         </div>
 
