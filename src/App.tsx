@@ -52,41 +52,76 @@ export default function App() {
   };
 
   const watchAd = () => {
-    if (isAdLoading || !userId) return;
+    if (isAdLoading) return;
 
-    setIsAdLoading(true);
-    showPopup("Opening secure ad channel...", 'info');
-
-    // In a Telegram Mini App, we open the Monetag Rewarded link.
-    // We append the userId as 'var' so Monetag can send it back to our server.
-    const separator = MONETAG_DIRECT_LINK.includes('?') ? '&' : '?';
-    const rewardedUrl = `${MONETAG_DIRECT_LINK}${separator}var=${userId}`;
-
-    // Use Telegram's native link opener
-    if (window.Telegram?.WebApp) {
-      window.Telegram.WebApp.openLink(rewardedUrl);
-    } else {
-      window.open(rewardedUrl, '_blank');
+    if (!userId) {
+      showPopup("Notice: Running outside of Telegram. Rewards won't be tracked correctly.", 'info');
+      // We proceed for testing, but warn the user
     }
 
-    // Since the user is redirected or opens a new tab, we poll the server for the update
-    const pollInterval = setInterval(async () => {
-      const oldBalance = balance;
-      const response = await fetch(`/api/user-data/${userId}`);
-      const data = await response.json();
-      
-      if (data.balance > oldBalance) {
-        handleRewardSuccess(data.balance);
-        clearInterval(pollInterval);
-        setIsAdLoading(false);
-      }
-    }, 3000);
+    setIsAdLoading(true);
+    showPopup("Opening Monetag Ad... Please wait for return.", 'info');
 
-    // Stop polling after 2 minutes to save battery
+    // Prepare the URL with the user ID for tracking
+    const separator = MONETAG_DIRECT_LINK.includes('?') ? '&' : '?';
+    const trackingId = userId || 'demo_user';
+    const rewardedUrl = `${MONETAG_DIRECT_LINK}${separator}var=${trackingId}`;
+
+    console.log("Opening Ad URL:", rewardedUrl);
+
+    // Open link logic
+    try {
+      if (window.Telegram?.WebApp && window.Telegram.WebApp.platform !== 'unknown') {
+        window.Telegram.WebApp.openLink(rewardedUrl);
+      } else {
+        // Fallback for browser testing
+        const newWindow = window.open(rewardedUrl, '_blank');
+        if (!newWindow) {
+          showPopup("Popup blocked! Please allow popups for this site.", "error");
+          setIsAdLoading(false);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("Link capture error", e);
+      setIsAdLoading(false);
+    }
+
+    // Polling logic to see if server got the reward
+    const pollInterval = setInterval(async () => {
+      try {
+        const idToPoll = userId || 'demo_user';
+        // Use a relative path but handle errors gracefully
+        const response = await fetch(`/api/user-data/${idToPoll}`);
+        
+        if (!response.ok) throw new Error("Server response not OK");
+        
+        const data = await response.json();
+        
+        // Use functional comparison to ensure we have the absolute latest state
+        setBalance(prevBalance => {
+          if (data.balance > prevBalance) {
+            handleRewardSuccess(data.balance);
+            clearInterval(pollInterval);
+            setIsAdLoading(false);
+            return data.balance;
+          }
+          return prevBalance;
+        });
+      } catch (err) {
+        // Log locally but don't crash or alert the user, just try again next interval
+        console.warn("Retrying balance check...", err);
+      }
+    }, 4000); // 4 seconds is safer than 3
+
+    // Stop polling after 3 minutes
     setTimeout(() => {
       clearInterval(pollInterval);
-      setIsAdLoading(false);
-    }, 120000);
+      if (isAdLoading) {
+        setIsAdLoading(false);
+        showPopup("Ad verification timed out. Check your internet.", "info");
+      }
+    }, 180000);
   };
 
   const handleRewardSuccess = (newBalance: number) => {
@@ -99,7 +134,7 @@ export default function App() {
     <div className="flex flex-col h-screen w-full relative px-6 py-8 select-none overflow-hidden font-sans">
       {/* Mesh Background */}
       <div className="absolute inset-0 pointer-events-none opacity-20">
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_0%,rgba(59,130,246,0.3),transparent_70%)]" />
+        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_0%,rgba(34,197,94,0.3),transparent_70%)]" />
       </div>
 
       {/* Header */}
@@ -133,7 +168,7 @@ export default function App() {
       <main className="flex-1 flex flex-col items-center justify-center gap-10">
         <div className="relative group">
           {/* Animated Glow */}
-          <div className="absolute inset-0 bg-blue-600/10 blur-[80px] rounded-full scale-150 animate-pulse" />
+          <div className="absolute inset-0 bg-green-600/10 blur-[80px] rounded-full scale-150 animate-pulse" />
           
           <motion.button
             whileHover={{ scale: 1.02 }}
@@ -148,7 +183,7 @@ export default function App() {
             <motion.div 
               animate={isAdLoading ? { rotate: 360 } : {}}
               transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-              className={`w-24 h-24 rounded-[32px] bg-gradient-to-br from-blue-400 to-blue-700 flex items-center justify-center shadow-[0_20px_40px_rgba(37,99,235,0.4)] mb-6 group-hover:shadow-[0_20px_50px_rgba(37,99,235,0.6)] transition-all`}
+              className={`w-24 h-24 rounded-[32px] bg-gradient-to-br from-green-400 to-green-700 flex items-center justify-center shadow-[0_20px_40px_rgba(22,163,74,0.4)] mb-6 group-hover:shadow-[0_20px_50px_rgba(22,163,74,0.6)] transition-all`}
             >
               {isAdLoading ? (
                 <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
@@ -158,9 +193,9 @@ export default function App() {
             </motion.div>
             
             <h2 className="text-3xl font-display font-bold text-white tracking-tight mb-2">Watch Ads</h2>
-            <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 rounded-full border border-blue-500/20">
-              <span className="text-blue-400 font-mono text-xs font-bold tracking-widest">+{REWARD_AMOUNT} POINTS</span>
-              <ChevronRight className="w-4 h-4 text-blue-400" />
+            <div className="flex items-center gap-2 px-4 py-1.5 bg-green-500/10 rounded-full border border-green-500/20">
+              <span className="text-green-400 font-mono text-xs font-bold tracking-widest">+{REWARD_AMOUNT} POINTS</span>
+              <ChevronRight className="w-4 h-4 text-green-400" />
             </div>
 
             {/* Scanning Line overlay when loading */}
@@ -169,7 +204,7 @@ export default function App() {
                 initial={{ top: "-100%" }}
                 animate={{ top: "100%" }}
                 transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                className="absolute inset-x-0 h-10 bg-gradient-to-b from-transparent via-blue-500/10 to-transparent pointer-events-none"
+                className="absolute inset-x-0 h-10 bg-gradient-to-b from-transparent via-green-500/10 to-transparent pointer-events-none"
               />
             )}
           </motion.button>
@@ -215,24 +250,24 @@ export default function App() {
             className={`fixed bottom-10 left-6 right-6 p-4 rounded-2xl border flex items-center gap-4 shadow-2xl z-[100] backdrop-blur-3xl animate-slide-up ${
               popup.type === 'success' ? 'bg-green-500/10 border-green-500/30 shadow-green-500/10' : 
               popup.type === 'error' ? 'bg-red-500/10 border-red-500/30 shadow-red-500/10' : 
-              'bg-blue-500/10 border-blue-500/30 shadow-blue-500/10'
+              'bg-green-500/10 border-green-500/30 shadow-green-500/10'
             }`}
           >
             <div className={`rounded-xl p-2 flex-shrink-0 ${
               popup.type === 'success' ? 'bg-green-500/20' : 
               popup.type === 'error' ? 'bg-red-500/20' : 
-              'bg-blue-500/20'
+              'bg-green-500/20'
             }`}>
               {popup.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : 
                popup.type === 'error' ? <AlertCircle className="w-5 h-5 text-red-500" /> : 
-               <Info className="w-5 h-5 text-blue-500" />}
+               <Info className="w-5 h-5 text-green-500" />}
             </div>
             
             <div className="flex-1">
               <p className={`font-bold text-xs uppercase tracking-widest ${
                 popup.type === 'success' ? 'text-green-500' : 
                 popup.type === 'error' ? 'text-red-500' : 
-                'text-blue-500'
+                'text-green-500'
               }`}>
                 {popup.type === 'success' ? 'Reward Claimed' : 
                  popup.type === 'error' ? 'Error' : 
