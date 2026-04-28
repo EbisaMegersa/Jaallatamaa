@@ -19,6 +19,20 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["username", "telegramId", "adsWatched", "balance", "updatedAt"]
+    },
+    "Withdrawal": {
+      "title": "Withdrawal",
+      "description": "Withdrawal request tracking",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "address": { "type": "string" },
+        "uid": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "method", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -37,6 +51,10 @@
         "required": ["joinedAt", "telegramId"]
       },
       "description": "List of users referred by this user"
+    },
+    "users/{userId}/withdrawals/{withdrawalId}": {
+      "schema": "Withdrawal",
+      "description": "History of withdrawals for this user"
     }
   }
 }
