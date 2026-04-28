@@ -168,14 +168,15 @@ export default function App() {
       }
     };
     
-    // Trigger Ad only on user interaction using the specific pop format
+    // Trigger Ad only on user interaction using the rewarded interstitial format
     const adFn = (window as any).show_10937696;
     if (typeof adFn === 'function') {
       try {
-        console.log("Calling Ad SDK pop format...");
-        adFn('pop').then(() => {
+        console.log("Calling Ad SDK rewarded interstitial...");
+        adFn().then(() => {
           console.log("Ad finished, giving reward...");
           rewardUser();
+          alert('You have seen an ad!');
         }).catch((err: any) => {
           console.error("Ad SDK error:", err);
           setIsWatching(false);
