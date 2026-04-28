@@ -15,20 +15,22 @@ async function startServer() {
   // Monetag Callback Endpoint (Server-to-Server)
   // Pattern: /api/monetag-callback?user_id=123&zone_id=456
   app.get("/api/monetag-callback", (req, res) => {
-    const { user_id, zone_id } = req.query;
+    // Monetag passes the subid/var value based on your postback settings
+    // Recommend setting postback URL as: [your-url]/api/monetag-callback?user_id=${var}
+    const { user_id, var: userVar, zone_id } = req.query;
+    const uid = String(user_id || userVar);
 
-    if (!user_id) {
-      return res.status(400).send("Missing user_id");
+    if (!uid || uid === "undefined") {
+      console.error("[MONETAG ERROR] Received callback without valid user identification", req.query);
+      return res.status(400).send("Missing user identification");
     }
 
-    const uid = String(user_id);
     const rewardAmount = 20;
-
     userBalances[uid] = (userBalances[uid] || 0) + rewardAmount;
 
-    console.log(`[MONETAG SUCCESS] User ${uid} rewarded ${rewardAmount} Pts. Zone: ${zone_id}`);
+    console.log(`[MONETAG SUCCESS] User ${uid} rewarded ${rewardAmount} Pts. Zone: ${zone_id || 'N/A'}`);
     
-    // Monetag usually expects a 200 OK or a specific word
+    // Return 200 OK to Monetag so they know we received it
     res.status(200).send("OK");
   });
 

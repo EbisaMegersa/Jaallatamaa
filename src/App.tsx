@@ -5,7 +5,6 @@ import { PlayCircle, Wallet, User, CheckCircle2, AlertCircle, Info, ChevronRight
 declare global {
   interface Window {
     Telegram?: any;
-    Adsgram?: any;
   }
 }
 
@@ -19,8 +18,7 @@ export default function App() {
 
   // Constants
   const REWARD_AMOUNT = 20;
-  const ADSGRAM_BLOCK_ID = "6155";
-  const MONETAG_ZONE_ID = "YOUR_ZONE_ID"; // User would replace this
+  const MONETAG_DIRECT_LINK = "https://omg10.com/4/10937706"; 
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -33,12 +31,7 @@ export default function App() {
         const name = user.username ? `@${user.username}` : user.first_name;
         setUsername(name);
         setUserId(user.id);
-
-        // Fetch initial balance from server
         fetchServerBalance(user.id);
-        
-        const storedAds = localStorage.getItem(`ads_watched_${user.id}`);
-        if (storedAds) setAdsWatched(parseInt(storedAds));
       }
     }
   }, []);
@@ -49,10 +42,7 @@ export default function App() {
       const data = await response.json();
       setBalance(data.balance);
     } catch (error) {
-      console.error("Failed to fetch balance from server:", error);
-      // Fallback to local storage if server fails
-      const storedBalance = localStorage.getItem(`balance_pts_${uid}`);
-      if (storedBalance) setBalance(parseInt(storedBalance));
+      console.error("Balance fetch failed:", error);
     }
   };
 
@@ -61,48 +51,48 @@ export default function App() {
     setTimeout(() => setPopup(null), 4000);
   };
 
-  // MONETAG INTEGRATION
-  const watchMonetagAd = async () => {
+  const watchAd = () => {
     if (isAdLoading || !userId) return;
 
     setIsAdLoading(true);
-    showPopup("Loading secure ad request...", 'info');
+    showPopup("Opening secure ad channel...", 'info');
 
-    // Step 1: Execute Monetag ad link/script
-    // In a real Monetag Reward Tag, you redirect the user to a link with your user_id
-    // to track the S2S callback correctly.
-    // Replace with actual Monetag Tag URL
-    const MONETAG_REWARD_TAG_URL = `https://your-monetag-link.com/tag.php?zone=${MONETAG_ZONE_ID}&user_id=${userId}`;
+    // In a Telegram Mini App, we open the Monetag Rewarded link.
+    // We append the userId as 'var' so Monetag can send it back to our server.
+    const separator = MONETAG_DIRECT_LINK.includes('?') ? '&' : '?';
+    const rewardedUrl = `${MONETAG_DIRECT_LINK}${separator}var=${userId}`;
 
-    try {
-      // In a Mini App, we usually use Telegram.WebApp.openLink
-      // window.Telegram.WebApp.openLink(MONETAG_REWARD_TAG_URL);
-      
-      // For this prototype, we'll simulate the "view" then check server
-      console.log("Opening Monetag Ad View for S2S logic...");
-      
-      // We simulate the ad playback time
-      setTimeout(async () => {
-        setIsAdLoading(false);
-        showPopup("Ad finished! Verifying with server...", 'info');
-        
-        // Step 2 & 3: Listen for callback and Refresh
-        // Typically the user finishes the ad, and then the server receives the S2S Postback
-        // Since we are in the same environment, we simulate the S2S callback to our server
-        await fetch(`/api/monetag-callback?user_id=${userId}&zone_id=${MONETAG_ZONE_ID}`);
-        
-        // Refresh balance from server
-        await fetchServerBalance(userId);
-        
-        setAdsWatched(prev => prev + 1);
-        showPopup(`Success! ${REWARD_AMOUNT} points added for watching the ad.`, 'success');
-      }, 5000); 
-
-    } catch (error) {
-      console.error("Monetag Integration Error:", error);
-      showPopup("Ads currently unavailable. Please try again in a moment.", 'error');
-      setIsAdLoading(false);
+    // Use Telegram's native link opener
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.openLink(rewardedUrl);
+    } else {
+      window.open(rewardedUrl, '_blank');
     }
+
+    // Since the user is redirected or opens a new tab, we poll the server for the update
+    const pollInterval = setInterval(async () => {
+      const oldBalance = balance;
+      const response = await fetch(`/api/user-data/${userId}`);
+      const data = await response.json();
+      
+      if (data.balance > oldBalance) {
+        handleRewardSuccess(data.balance);
+        clearInterval(pollInterval);
+        setIsAdLoading(false);
+      }
+    }, 3000);
+
+    // Stop polling after 2 minutes to save battery
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      setIsAdLoading(false);
+    }, 120000);
+  };
+
+  const handleRewardSuccess = (newBalance: number) => {
+    setBalance(newBalance);
+    setAdsWatched(prev => prev + 1);
+    showPopup(`Success! ${REWARD_AMOUNT} points added via Monetag verification.`, 'success');
   };
 
   return (
@@ -148,7 +138,7 @@ export default function App() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.95 }}
-            onClick={watchMonetagAd}
+            onClick={watchAd}
             disabled={isAdLoading}
             className={`w-64 h-64 md:w-72 md:h-72 glass-card rounded-[48px] flex flex-col items-center justify-center p-8 transition-all relative overflow-hidden group border-white/15 outline-none  ${isAdLoading ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           >
