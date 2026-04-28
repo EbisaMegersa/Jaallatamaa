@@ -95,162 +95,130 @@ export default function App() {
   const [isVerifyingTask, setIsVerifyingTask] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
+  const [error, setError] = useState<string | null>(null);
 
   // Initialize Telegram & Data
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
 
     const extractStartParam = (tg: any) => {
-      // Priority 1: initDataUnsafe
       if (tg.initDataUnsafe?.start_param) return tg.initDataUnsafe.start_param;
-      
-      // Priority 2: Fallback parsing from raw initData string
       try {
         const urlParams = new URLSearchParams(tg.initData);
-        const startParamRaw = urlParams.get('start_param');
-        if (startParamRaw) return startParamRaw;
+        return urlParams.get('start_param');
       } catch (e) {
-        console.error("Failed to parse initData for start_param", e);
+        return null;
       }
-      return null;
+    };
+
+    const setupAuthListener = (tg: any, user: any) => {
+      return auth.onAuthStateChanged(async (firebaseUser) => {
+        if (!firebaseUser) return;
+
+        const userDocPath = `users/${firebaseUser.uid}`;
+        const inviterIdFromParam = extractStartParam(tg);
+        
+        const identity = {
+          id: user.id,
+          username: user.username || user.first_name || 'User'
+        };
+        setUserData(identity);
+
+        unsubscribe = onSnapshot(doc(db, userDocPath), async (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            setProfile({
+              telegramId: data.telegramId || 0,
+              username: data.username || 'User',
+              adsWatched: data.adsWatched || 0,
+              balance: data.balance || 0,
+              dailyStreak: data.dailyStreak || 0,
+              lastDailyClaim: data.lastDailyClaim,
+              tasksCompleted: data.tasksCompleted || [],
+              referralsCount: data.referralsCount || 0,
+              total_invites: data.total_invites || 0,
+              referralEarnings: data.referralEarnings || 0,
+              invitedBy: data.invitedBy || null
+            });
+            setLoading(false);
+          } else {
+            // NEW USER REGISTRATION
+            try {
+              let inviterIdStr = null;
+              if (inviterIdFromParam && parseInt(inviterIdFromParam) !== user.id) {
+                try {
+                  const inviterRef = collection(db, "users");
+                  const q = query(inviterRef, where("telegramId", "==", parseInt(inviterIdFromParam)), limit(1));
+                  const querySnapshot = await getDocs(q);
+                  
+                  if (!querySnapshot.empty) {
+                    const inviterDoc = querySnapshot.docs[0];
+                    inviterIdStr = inviterDoc.id;
+                    
+                    // Reward inviter (50 pts)
+                    await updateDoc(doc(db, "users", inviterDoc.id), {
+                      balance: increment(50),
+                      referralsCount: increment(1),
+                      total_invites: increment(1),
+                      referralEarnings: increment(50),
+                      updatedAt: serverTimestamp()
+                    });
+
+                    // Track in sub-collection
+                    await setDoc(doc(db, `users/${inviterDoc.id}/referrals/${user.id}`), {
+                      telegramId: user.id,
+                      username: identity.username,
+                      joinedAt: serverTimestamp()
+                    });
+                    
+                    tg.showAlert(`Welcome to @Madbottherbot! You were successfully referred and can now start earning.`);
+                    tg.HapticFeedback?.notificationOccurred('success');
+                  }
+                } catch (refErr) {
+                  console.error("Referral Error:", refErr);
+                }
+              }
+              
+              const initialProfile = {
+                telegramId: user.id,
+                username: identity.username,
+                adsWatched: 0,
+                balance: 0,
+                dailyStreak: 0,
+                lastDailyClaim: null,
+                tasksCompleted: [],
+                referralsCount: 0,
+                total_invites: 0,
+                referralEarnings: 0,
+                invitedBy: inviterIdStr,
+                updatedAt: serverTimestamp()
+              };
+              await setDoc(doc(db, userDocPath), initialProfile);
+            } catch (e) {
+              console.error("Registration Error", e);
+              setError("Failed to create profile. Please check if Anonymous Auth is enabled in Firebase.");
+              setLoading(false);
+            }
+          }
+        }, (err) => {
+          console.error("Firestore Snapshot Error", err);
+          setError("Database connection error. Try again later.");
+          setLoading(false);
+        });
+      });
     };
 
     const init = async () => {
-      try {
-        const tg = (window as any).Telegram?.WebApp;
-        if (tg) {
-          tg.ready();
-          tg.expand();
-          
-          if (tg.initDataUnsafe?.user) {
-            const user = tg.initDataUnsafe.user;
-            const inviterIdFromParam = extractStartParam(tg);
-            
-            const identity = {
-              id: user.id,
-              username: user.username || user.first_name || 'User'
-            };
-            setUserData(identity);
-
-            // Wait for Auth
-            const checkAuth = async () => {
-              if (auth.currentUser) {
-                const userDocPath = `users/${auth.currentUser.uid}`;
-                unsubscribe = onSnapshot(doc(db, userDocPath), async (snapshot) => {
-                  if (snapshot.exists()) {
-                    const data = snapshot.data();
-                    setProfile({
-                      telegramId: data.telegramId || 0,
-                      username: data.username || 'User',
-                      adsWatched: data.adsWatched || 0,
-                      balance: data.balance || 0,
-                      dailyStreak: data.dailyStreak || 0,
-                      lastDailyClaim: data.lastDailyClaim,
-                      tasksCompleted: data.tasksCompleted || [],
-                      referralsCount: data.referralsCount || 0,
-                      total_invites: data.total_invites || 0,
-                      referralEarnings: data.referralEarnings || 0,
-                      invitedBy: data.invitedBy || null
-                    });
-                    setLoading(false);
-                  } else {
-                    // NEW USER REGISTRATION
-                    try {
-                      // 1. Capture deep link parameter
-                      let inviterIdStr = null;
-                      let inviterName = null;
-
-                      if (inviterIdFromParam) {
-                        console.log(`Perfect Detection: Referral ID detected: ${inviterIdFromParam}`);
-                        
-                        // Process Referral if user is new and inviter is not self
-                        if (parseInt(inviterIdFromParam) !== user.id) {
-                           try {
-                             const inviterRef = collection(db, "users");
-                             const q = query(inviterRef, where("telegramId", "==", parseInt(inviterIdFromParam)), limit(1));
-                             const querySnapshot = await getDocs(q);
-                             
-                             if (!querySnapshot.empty) {
-                               const inviterDoc = querySnapshot.docs[0];
-                               inviterIdStr = inviterDoc.id;
-                               const inviterData = inviterDoc.data();
-                               inviterName = inviterData.username || 'a friend';
-                               
-                               // A. Reward the inviter (50 points)
-                               await updateDoc(doc(db, "users", inviterDoc.id), {
-                                 balance: increment(50),
-                                 referralsCount: increment(1),
-                                 total_invites: increment(1),
-                                 referralEarnings: increment(50),
-                                 updatedAt: serverTimestamp()
-                               });
-
-                               // B. Track in sub-collection
-                               const referralRef = doc(db, `users/${inviterDoc.id}/referrals/${user.id}`);
-                               await setDoc(referralRef, {
-                                 telegramId: user.id,
-                                 username: identity.username,
-                                 joinedAt: serverTimestamp()
-                               });
-                               
-                               console.log("SUCCESS: High-performance referral credited to:", inviterIdStr);
-                               
-                               // C. Notify user (as requested)
-                               try {
-                                 // To the new user:
-                                 tg.showAlert(`Welcome to @Madbottherbot! You were successfully referred and can now start earning.`);
-                                 // The "Real-time feedback to referrer" is usually handled by a bot notification, 
-                                 // but here we can show a special state or just acknowledge the success.
-                                 tg.HapticFeedback?.notificationOccurred('success');
-                               } catch {}
-                             }
-                           } catch (refErr) {
-                              console.error("Referral sub-collection error:", refErr);
-                           }
-                        }
-                      }
-                      
-                      // 2. Create the user profile
-                      const initialProfile = {
-                        telegramId: user.id,
-                        username: identity.username,
-                        adsWatched: 0,
-                        balance: 0,
-                        dailyStreak: 0,
-                        lastDailyClaim: null,
-                        tasksCompleted: [],
-                        referralsCount: 0,
-                        total_invites: 0,
-                        referralEarnings: 0,
-                        invitedBy: inviterIdStr,
-                        updatedAt: serverTimestamp()
-                      };
-                      await setDoc(doc(db, userDocPath), initialProfile);
-                    } catch (e) {
-                      handleFirestoreError(e, OperationType.CREATE, userDocPath);
-                      setLoading(false);
-                    }
-                  }
-                }, (error) => {
-                  handleFirestoreError(error, OperationType.GET, userDocPath);
-                  setLoading(false);
-                });
-              } else {
-                setTimeout(checkAuth, 100);
-              }
-            };
-            checkAuth();
-          } else {
-            setUserData({ id: 0, username: 'Guest' });
-            setLoading(false);
-          }
+      const tg = (window as any).Telegram?.WebApp;
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        if (tg.initDataUnsafe?.user) {
+          setupAuthListener(tg, tg.initDataUnsafe.user);
         } else {
-          setUserData({ id: 0, username: 'Guest' });
           setLoading(false);
         }
-      } catch (e) {
-        console.error("Initialization error", e);
-        setUserData({ id: 0, username: 'Guest' });
+      } else {
         setLoading(false);
       }
     };
@@ -401,8 +369,30 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0D121F]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#EF4444]" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#0D121F] p-10 text-center">
+        <Loader2 className="w-12 h-12 animate-spin text-[#EF4444] mb-6" />
+        <h2 className="text-xl font-black text-white mb-2">Loading @Madbot...</h2>
+        <p className="text-sm text-[#A0AEC0]">Securing connection to rewards gateway</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#0D121F] p-8 text-center">
+        <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-6">
+          <Bell className="w-10 h-10 text-red-500" />
+        </div>
+        <h2 className="text-2xl font-black text-white mb-4">Connection Failed</h2>
+        <p className="text-red-400 text-sm mb-10 leading-relaxed bg-red-500/5 p-4 rounded-xl border border-red-500/10">
+          {error}
+        </p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="w-full h-16 rounded-2xl bg-white text-black font-black shadow-xl"
+        >
+          RETRY CONNECTION
+        </button>
       </div>
     );
   }
