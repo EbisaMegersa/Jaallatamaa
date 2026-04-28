@@ -135,18 +135,24 @@ export default function App() {
                     });
                     setLoading(false);
                   } else {
+                    // NEW USER REGISTRATION
                     try {
-                      const startParam = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
+                      // 1. Capture deep link parameter
+                      const startParam = tg.initDataUnsafe?.start_param;
                       let inviterIdStr = null;
+                      let inviterName = null;
                       
-                      // Process Referral
+                      // 2. Process Referral if user is new
                       if (startParam && parseInt(startParam) !== user.id) {
                          try {
+                           console.log("Processing referral for start_param:", startParam);
                            const q = query(collection(db, "users"), where("telegramId", "==", parseInt(startParam)), limit(1));
                            const querySnapshot = await getDocs(q);
+                           
                            if (!querySnapshot.empty) {
                              const inviterDoc = querySnapshot.docs[0];
                              inviterIdStr = inviterDoc.id;
+                             inviterName = inviterDoc.data().username || 'a friend';
                              
                              // Reward the inviter ($0.25)
                              await updateDoc(doc(db, "users", inviterDoc.id), {
@@ -155,13 +161,22 @@ export default function App() {
                                referralEarnings: increment(0.25),
                                updatedAt: serverTimestamp()
                              });
-                             console.log("Referral rewarded to:", inviterIdStr);
+                             console.log("Referral reward granted to inviter:", inviterIdStr);
+                             
+                             // Notify the new user
+                             try {
+                               tg.showAlert(`Welcome! You were invited by ${inviterName} (ID: ${startParam}).`);
+                               tg.HapticFeedback?.notificationOccurred('success');
+                             } catch {}
+                           } else {
+                             console.log("Inviter document not found for ID:", startParam);
                            }
                          } catch (refErr) {
                             console.error("Referral processing error:", refErr);
                          }
                       }
 
+                      // 3. Create the user profile
                       const initialProfile = {
                         telegramId: user.id,
                         username: identity.username,
@@ -176,6 +191,7 @@ export default function App() {
                         updatedAt: serverTimestamp()
                       };
                       await setDoc(doc(db, userDocPath), initialProfile);
+                      console.log("New user profile created:", user.id);
                     } catch (e) {
                       handleFirestoreError(e, OperationType.CREATE, userDocPath);
                       setLoading(false);
@@ -186,7 +202,7 @@ export default function App() {
                   setLoading(false);
                 });
               } else {
-                setTimeout(checkAuth, 500);
+                setTimeout(checkAuth, 100);
               }
             };
             checkAuth();
@@ -352,13 +368,13 @@ export default function App() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0D121F]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#5D5FEF]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[#06B6D4]" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pb-28 bg-[#0D121F] font-sans selection:bg-[#5D5FEF]/30 overflow-x-hidden">
+    <div className="min-h-screen pb-28 bg-[#0D121F] font-sans selection:bg-[#06B6D4]/30 overflow-x-hidden">
       {/* Header Section */}
       <header className="px-6 pt-6 pb-4 flex items-center justify-between">
         <div>
@@ -369,7 +385,7 @@ export default function App() {
             {activeTab === 'home' ? "Let's earn some money today!" : activeTab === 'tasks' ? "Complete tasks to earn more" : "Refer friends to get paid"}
           </p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#5D5FEF] to-[#8B5CF6] flex items-center justify-center border border-white/10 shadow-lg shadow-[#5D5FEF]/10 p-0.5">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#06B6D4] to-[#10B981] flex items-center justify-center border border-white/10 shadow-lg shadow-[#06B6D4]/10 p-0.5">
           <div className="w-full h-full rounded-full bg-[#0D121F] flex items-center justify-center">
              <UserIcon className="w-5 h-5 text-white" />
           </div>
@@ -383,7 +399,7 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="gradient-card rounded-[24px] p-6 text-white shadow-xl shadow-[#5D5FEF]/10"
+              className="gradient-card rounded-[24px] p-6 text-white shadow-xl shadow-[#06B6D4]/10"
             >
               <div className="relative z-10">
                 <p className="text-sm font-medium opacity-80 uppercase tracking-widest">Total Balance</p>
@@ -413,7 +429,7 @@ export default function App() {
               whileTap={{ scale: 0.98 }}
               onClick={handleWatchAd}
               disabled={isWatching}
-              className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#5D5FEF] to-[#8B5CF6] flex items-center justify-center gap-3 text-white font-bold shadow-lg shadow-[#5D5FEF]/20 disabled:opacity-70 disabled:cursor-not-allowed group transition-all"
+              className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#06B6D4] to-[#10B981] flex items-center justify-center gap-3 text-white font-bold shadow-lg shadow-[#06B6D4]/20 disabled:opacity-70 disabled:cursor-not-allowed group transition-all"
             >
               {isWatching ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -425,14 +441,14 @@ export default function App() {
 
             {/* Daily Rewards Sneak Peek */}
             <section className="stats-card rounded-2xl p-4 flex items-center gap-4 cursor-pointer" onClick={() => setActiveTab('tasks')}>
-              <div className="w-12 h-12 rounded-xl bg-[#5D5FEF]/10 flex items-center justify-center">
-                <Zap className="w-6 h-6 text-[#5D5FEF]" />
+              <div className="w-12 h-12 rounded-xl bg-[#06B6D4]/10 flex items-center justify-center">
+                <Zap className="w-6 h-6 text-[#06B6D4]" />
               </div>
               <div className="flex-1">
                 <h4 className="font-bold text-sm">Daily Reward</h4>
                 <p className="text-xs text-[#A0AEC0]">Current Streak: {profile?.dailyStreak || 0} Days</p>
               </div>
-              <div className="px-3 py-1 rounded-full bg-[#5D5FEF]/10 text-[#5D5FEF] text-[10px] font-bold border border-[#5D5FEF]/20 uppercase">
+              <div className="px-3 py-1 rounded-full bg-[#06B6D4]/10 text-[#06B6D4] text-[10px] font-bold border border-[#06B6D4]/20 uppercase">
                  View Tasks
               </div>
             </section>
@@ -447,10 +463,10 @@ export default function App() {
                     <p className="text-xs text-[#A0AEC0]">Claim your daily reward</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-bold text-[#5D5FEF]">{profile?.dailyStreak}/7 Days</p>
+                    <p className="text-xs font-bold text-[#06B6D4]">{profile?.dailyStreak}/7 Days</p>
                     <div className="w-20 h-1.5 bg-white/10 rounded-full mt-1 overflow-hidden">
                        <div 
-                        className="h-full bg-[#5D5FEF] transition-all duration-500" 
+                        className="h-full bg-[#06B6D4] transition-all duration-500" 
                         style={{ width: `${((profile?.dailyStreak || 0) / 7) * 100}%` }}
                        />
                     </div>
@@ -466,13 +482,13 @@ export default function App() {
                    return (
                      <div key={day} className="flex flex-col items-center gap-2">
                         <div className={`w-full aspect-square rounded-xl flex items-center justify-center text-[10px] font-bold border transition-all
-                          ${isCompleted ? 'bg-[#5D5FEF] border-[#5D5FEF] text-white' : 
-                            isCurrent ? 'bg-white/5 border-[#5D5FEF] text-[#5D5FEF] shadow-[0_0_10px_rgba(93,95,239,0.2)]' : 
+                          ${isCompleted ? 'bg-[#06B6D4] border-[#06B6D4] text-white' : 
+                            isCurrent ? 'bg-white/5 border-[#06B6D4] text-[#06B6D4] shadow-[0_0_10px_rgba(6,182,212,0.2)]' : 
                             'bg-white/5 border-white/10 text-[#A0AEC0]'}`}
                         >
                           {isCompleted ? <Check className="w-4 h-4" /> : `Day ${day}`}
                         </div>
-                        <span className={`text-[8px] font-bold ${isCurrent ? 'text-[#5D5FEF]' : 'text-[#A0AEC0]'}`}>
+                        <span className={`text-[8px] font-bold ${isCurrent ? 'text-[#06B6D4]' : 'text-[#A0AEC0]'}`}>
                           ${DAILY_REWARDS[i].toFixed(2)}
                         </span>
                      </div>
@@ -484,7 +500,7 @@ export default function App() {
                 whileTap={{ scale: 0.98 }}
                 onClick={handleDailyCheckIn}
                 disabled={isClaimingDaily}
-                className="w-full py-3 rounded-xl bg-[#5D5FEF] text-white text-sm font-bold shadow-lg shadow-[#5D5FEF]/20 disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#06B6D4] text-white text-sm font-bold shadow-lg shadow-[#06B6D4]/20 disabled:opacity-50"
                >
                  {isClaimingDaily ? 'Claiming...' : 'Claim Today\'s Reward'}
                </motion.button>
@@ -564,7 +580,7 @@ export default function App() {
 
                {/* Decorative Circles */}
                <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
-               <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-[#8B5CF6]/20 rounded-full blur-3xl" />
+               <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-[#06B6D4]/20 rounded-full blur-3xl" />
             </motion.div>
 
             {/* Link Box */}
@@ -574,11 +590,11 @@ export default function App() {
                 <input 
                   readOnly 
                   value={referralLink}
-                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-sm text-white pr-14 focus:outline-none focus:border-[#5D5FEF]/50 transition-all font-mono"
+                  className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-sm text-white pr-14 focus:outline-none focus:border-[#06B6D4]/50 transition-all font-mono"
                 />
                 <button 
                   onClick={handleCopyLink}
-                  className="absolute right-2 top-2 bottom-2 w-10 bg-[#5D5FEF] rounded-xl flex items-center justify-center text-white active:scale-95 transition-transform"
+                  className="absolute right-2 top-2 bottom-2 w-10 bg-[#06B6D4] rounded-xl flex items-center justify-center text-white active:scale-95 transition-transform"
                 >
                   <Copy size={16} />
                 </button>
@@ -597,7 +613,7 @@ export default function App() {
 
             <div className="stats-card rounded-2xl p-5 border border-white/5">
                <h5 className="text-sm font-bold flex items-center gap-2 mb-2">
-                 <Bell size={14} className="text-[#5D5FEF]" />
+                 <Bell size={14} className="text-[#06B6D4]" />
                  How it works
                </h5>
                <p className="text-xs text-[#A0AEC0] leading-relaxed">
@@ -626,9 +642,9 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   return (
     <button 
       onClick={onClick}
-      className={`flex flex-col items-center gap-1 transition-all group relative ${active ? 'text-[#5D5FEF]' : 'text-[#A0AEC0]'}`}
+      className={`flex flex-col items-center gap-1 transition-all group relative ${active ? 'text-[#06B6D4]' : 'text-[#A0AEC0]'}`}
     >
-      <div className={`p-2 rounded-xl transition-all ${active ? 'bg-[#5D5FEF]/10 scale-110 shadow-lg shadow-[#5D5FEF]/10' : 'group-hover:bg-white/5'}`}>
+      <div className={`p-2 rounded-xl transition-all ${active ? 'bg-[#06B6D4]/10 scale-110 shadow-lg shadow-[#06B6D4]/10' : 'group-hover:bg-white/5'}`}>
         {React.cloneElement(icon as React.ReactElement, { size: 24, strokeWidth: active ? 2.5 : 2 })}
       </div>
       <span className={`text-[10px] font-bold uppercase tracking-widest ${active ? 'opacity-100' : 'opacity-40'}`}>
@@ -637,7 +653,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
       {active && (
         <motion.div 
           layoutId="nav-pill"
-          className="w-1.5 h-1.5 rounded-full bg-[#5D5FEF] absolute -bottom-1"
+          className="w-1.5 h-1.5 rounded-full bg-[#06B6D4] absolute -bottom-1"
         />
       )}
     </button>
