@@ -1,0 +1,21 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and ad watch counts",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "adsWatched": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "adsWatched", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User documents indexed by Telegram UID"
+    }
+  }
+}

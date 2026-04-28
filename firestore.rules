@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} { allow read, write: if false; }
+
+    // Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+
+    // Validation Blueprint
+    function isValidUser(data) {
+      return data.keys().hasAll(['username', 'adsWatched', 'updatedAt', 'telegramId'])
+        && data.username is string && data.username.size() <= 100
+        && data.adsWatched is int && data.adsWatched >= 0
+        && data.updatedAt == request.time
+        && (data.telegramId is int || data.telegramId is string);
+    }
+
+    match /users/{userId} {
+      // Secure List Queries
+      allow list: if isOwner(userId) && isValidId(userId);
+      
+      allow get: if isOwner(userId) && isValidId(userId);
+      
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && incoming().keys().size() == 4;
+      
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming())
+        && (
+          // Identity Integrity: Immutable Fields
+          incoming().telegramId == existing().telegramId &&
+          incoming().username == existing().username &&
+          (
+            // Action: Increment Ad Count
+            // We allow increment as long as it's the only logic changing adsWatched
+            incoming().diff(existing()).affectedKeys().hasOnly(['adsWatched', 'updatedAt']) &&
+            incoming().adsWatched > existing().adsWatched
+          )
+        );
+    }
+  }
+}
