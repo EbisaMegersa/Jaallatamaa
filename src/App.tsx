@@ -26,7 +26,7 @@ import {
   Clock
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { doc, setDoc, updateDoc, serverTimestamp, onSnapshot, increment, query, collection, where, getDocs, limit, orderBy, addDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, serverTimestamp, onSnapshot, increment, query, collection, where, getDocs, limit, orderBy, addDoc, writeBatch } from 'firebase/firestore';
 
 // --- Types ---
 interface UserProfile {
@@ -115,6 +115,7 @@ export default function App() {
 
   // Initialize Telegram & Data
   useEffect(() => {
+    let unsubscribeAuth: (() => void) | undefined;
     let unsubscribeProfile: (() => void) | undefined;
     let unsubscribeHistory: (() => void) | undefined;
 
@@ -128,9 +129,29 @@ export default function App() {
       }
     };
 
-    const setupAuthListener = (tg: any, user: any) => {
-      return auth.onAuthStateChanged(async (firebaseUser) => {
+    const init = async () => {
+      const tg = (window as any).Telegram?.WebApp;
+      if (!tg) {
+        setLoading(false);
+        return;
+      }
+
+      tg.ready();
+      tg.expand();
+
+      if (!tg.initDataUnsafe?.user) {
+        setLoading(false);
+        return;
+      }
+
+      const user = tg.initDataUnsafe.user;
+      
+      unsubscribeAuth = auth.onAuthStateChanged(async (firebaseUser) => {
         if (!firebaseUser) return;
+
+        // Cleanup existing listeners if any
+        unsubscribeProfile?.();
+        unsubscribeHistory?.();
 
         const userDocPath = `users/${firebaseUser.uid}`;
         const inviterIdFromParam = extractStartParam(tg);
@@ -141,6 +162,7 @@ export default function App() {
         };
         setUserData(identity);
 
+        // Profile Listener
         unsubscribeProfile = onSnapshot(doc(db, userDocPath), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
@@ -213,46 +235,42 @@ export default function App() {
               await setDoc(doc(db, userDocPath), initialProfile);
             } catch (e) {
               console.error("Registration Error", e);
-              setError("Failed to create profile. Please check if Anonymous Auth is enabled in Firebase.");
+              setError("Failed to create profile. Try refreshing.");
               setLoading(false);
             }
           }
         }, (err) => {
-          console.error("Firestore Snapshot Error", err);
+          console.error("Profile Snapshot Error", err);
           setError("Database connection error. Try again later.");
           setLoading(false);
         });
 
-        // Set up Withdrawal History Listener
+        // Withdrawal History Listener
         const historyRef = collection(db, `${userDocPath}/withdrawals`);
-        const qHistory = query(historyRef, orderBy('createdAt', 'desc'), limit(10));
+        // Note: orderBy requires index. If it fails, we'll know from console.
+        const qHistory = query(historyRef, orderBy('createdAt', 'desc'), limit(20));
         unsubscribeHistory = onSnapshot(qHistory, (snapshot) => {
           const history = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           } as WithdrawalHistory));
           setWithdrawalHistory(history);
+        }, (err) => {
+          console.error("History Snapshot Error:", err);
+          // Fallback query if orderBy fails (no index yet?)
+          onSnapshot(query(historyRef, limit(20)), (snap) => {
+             const history = snap.docs.map(d => ({ id: d.id, ...d.data() } as WithdrawalHistory));
+             // Manual client-side sort as fallback
+             history.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+             setWithdrawalHistory(history);
+          });
         });
       });
     };
 
-    const init = async () => {
-      const tg = (window as any).Telegram?.WebApp;
-      if (tg) {
-        tg.ready();
-        tg.expand();
-        if (tg.initDataUnsafe?.user) {
-          setupAuthListener(tg, tg.initDataUnsafe.user);
-        } else {
-          setLoading(false);
-        }
-      } else {
-        setLoading(false);
-      }
-    };
-
     init();
     return () => {
+      unsubscribeAuth?.();
       unsubscribeProfile?.();
       unsubscribeHistory?.();
     };
@@ -428,7 +446,7 @@ export default function App() {
     }
 
     // 4. Address Check (only if not Exchange)
-    const isExchange = (withdrawalMethod === 'binance' || withdrawalMethod === 'bybit');
+    const isExchange = (withdrawalMethod === 'binance');
     if (!isExchange && !withdrawalAddress) {
       alert('Please enter a valid wallet address.');
       return;
@@ -441,29 +459,35 @@ export default function App() {
     }
 
     setIsWithdrawing(true);
-    const userDocPath = `users/${auth.currentUser.uid}`;
+    const userDocRef = doc(db, `users/${auth.currentUser.uid}`);
+    const withdrawalColRef = collection(db, `users/${auth.currentUser.uid}/withdrawals`);
+    const newWithdrawalDocRef = doc(withdrawalColRef);
 
     try {
-      // Small artificial delay for processing state (3s or 5s as per req)
-      // The user asked for "5-second 'Processing...' state"
+      // Create Atomic Transaction (Write Batch)
+      const batch = writeBatch(db);
       
-      // Deduct points immediately
-      await updateDoc(doc(db, userDocPath), {
+      // 1. Deduct Balance
+      batch.update(userDocRef, {
         balance: increment(-amountNum),
         updatedAt: serverTimestamp()
       });
 
-      // Save to history
-      await addDoc(collection(db, `${userDocPath}/withdrawals`), {
+      // 2. Create History Entry
+      batch.set(newWithdrawalDocRef, {
         amount: amountNum,
         method: withdrawalMethod,
         address: withdrawalAddress || null,
         uid: withdrawalUid || null,
         status: 'Pending',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        userId: auth.currentUser.uid
       });
 
-      // Wait 5 seconds to show "Processing"
+      // Commit Batch
+      await batch.commit();
+
+      // Ensure at least 5 seconds of processing state as requested
       await new Promise(resolve => setTimeout(resolve, 5000));
 
       setWithdrawalSuccess(true);
@@ -480,7 +504,12 @@ export default function App() {
       // Auto hide success message after 3 seconds
       setTimeout(() => setWithdrawalSuccess(false), 3000);
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, userDocPath);
+      console.error("Withdrawal Error:", err);
+      handleFirestoreError(err, OperationType.WRITE, userDocRef.path);
+      try {
+        (window as any).Telegram?.WebApp?.showAlert('❌ Withdrawal failed. Please try again.');
+        (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
+      } catch {}
     } finally {
       setIsWithdrawing(false);
     }
@@ -552,8 +581,8 @@ export default function App() {
                 
                 <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/20 pt-6">
                   <div className="text-center">
-                    <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Withdrawn</p>
-                    <p className="text-sm font-bold mt-1">0 points</p>
+                    <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Total Friends</p>
+                    <p className="text-sm font-bold mt-1">{profile?.total_invites || 0}</p>
                   </div>
                   <div className="text-center border-x border-white/10 px-2">
                     <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Ads Watched</p>
@@ -753,7 +782,6 @@ export default function App() {
                   { id: 'usdt_bep20', label: 'USDT (BEP20)', img: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },
                   { id: 'ton', label: 'TON', img: 'https://cryptologos.cc/logos/toncoin-ton-logo.png' },
                   { id: 'binance', label: 'Binance', img: 'https://upload.wikimedia.org/wikipedia/commons/e/e8/Binance_Logo.svg' },
-                  { id: 'bybit', label: 'Bybit', img: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/Bybit_logo.svg' },
                 ].map((m) => (
                   <button 
                     key={m.id}
@@ -783,7 +811,7 @@ export default function App() {
                 </div>
               </div>
 
-              {!(withdrawalMethod === 'binance' || withdrawalMethod === 'bybit') ? (
+              {!(withdrawalMethod === 'binance') ? (
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-[#A0AEC0] uppercase tracking-[0.2em] ml-1">Wallet Address / Network</label>
                   <input 
@@ -851,7 +879,6 @@ export default function App() {
                         { id: 'usdt_bep20', img: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },
                         { id: 'ton', img: 'https://cryptologos.cc/logos/toncoin-ton-logo.png' },
                         { id: 'binance', img: 'https://upload.wikimedia.org/wikipedia/commons/e/e8/Binance_Logo.svg' },
-                        { id: 'bybit', img: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/Bybit_logo.svg' },
                      ].find(m => m.id === item.method)?.img;
 
                      return (
