@@ -26,7 +26,7 @@ service cloud.firestore {
       return data.keys().hasAll(['amount', 'method', 'status', 'createdAt', 'userId'])
         && data.amount is number && data.amount >= 30
         && data.method is string
-        && (data.status == 'Pending' || data.status == 'Success')
+        && (data.status == 'Pending' || data.status == 'Success' || data.status == 'Rejected')
         && data.userId == request.auth.uid;
     }
 

@@ -1,6 +1,6 @@
 {
-  "name": "AdWatch Rewards",
-  "description": "A minimalist ad-watching reward platform for Telegram.",
+  "name": "Jaallatamaa Rewards",
+  "description": "A Telegram-integrated rewards application where users earn points by watching ads and referring friends.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

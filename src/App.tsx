@@ -414,7 +414,7 @@ export default function App() {
   };
 
   const handleShare = () => {
-    const text = encodeURIComponent("Join this bot and earn rewards! 🚀");
+    const text = encodeURIComponent("Join this bot and earn rewards! \ud83d\ude80");
     const url = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${text}`;
     (window as any).Telegram?.WebApp?.openTelegramLink(url);
   };
@@ -495,22 +495,10 @@ export default function App() {
       // Commit Batch
       await batch.commit();
 
-      // Ensure at least 5 seconds of processing state as requested
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Flip status to Success and Consume Invites
-      const successBatch = writeBatch(db);
-      successBatch.update(newWithdrawalDocRef, { status: 'Success' });
-      successBatch.update(userDocRef, {
-        consumedInvites: increment(2),
-        updatedAt: serverTimestamp()
-      });
-      await successBatch.commit();
-
       setWithdrawalSuccess(true);
       
       try {
-        (window as any).Telegram?.WebApp?.showAlert('🎉 Withdrawal Request Submitted!');
+        (window as any).Telegram?.WebApp?.showAlert('\ud83c\udf89 Withdrawal Request Submitted!');
         (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
       } catch {}
       
@@ -518,13 +506,33 @@ export default function App() {
       setWithdrawalAddress('');
       setWithdrawalUid('');
 
-      // Auto hide success message after 3 seconds
-      setTimeout(() => setWithdrawalSuccess(false), 3000);
+      // Automated Transition after 60 seconds (1 minute)
+      setTimeout(async () => {
+        try {
+          const successBatch = writeBatch(db);
+          successBatch.update(newWithdrawalDocRef, { status: 'Success' });
+          successBatch.update(userDocRef, {
+            consumedInvites: increment(2),
+            updatedAt: serverTimestamp()
+          });
+          await successBatch.commit();
+          
+          try {
+             (window as any).Telegram?.WebApp?.showAlert('\u2705 Withdrawal Processed Successfully!');
+             (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
+          } catch {}
+        } catch (err) {
+          console.error("Delayed Withdrawal Update Error:", err);
+        }
+      }, 60000); // 1 minute delay
+
+      // Auto hide success message banner after 5 seconds
+      setTimeout(() => setWithdrawalSuccess(false), 5000);
     } catch (err) {
       console.error("Withdrawal Error:", err);
       handleFirestoreError(err, OperationType.WRITE, userDocRef.path);
       try {
-        (window as any).Telegram?.WebApp?.showAlert('❌ Withdrawal failed. Please try again.');
+        (window as any).Telegram?.WebApp?.showAlert('\u274c Withdrawal failed. Please try again.');
         (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
       } catch {}
     } finally {
@@ -781,7 +789,7 @@ export default function App() {
                  animate={{ opacity: 1, y: 0 }}
                  className="p-4 bg-green-500/20 border border-green-500/30 rounded-2xl text-center"
                >
-                 <p className="text-green-400 text-xs font-black uppercase tracking-widest">🎉 Withdrawal Request Submitted!</p>
+                 <p className="text-green-400 text-xs font-black uppercase tracking-widest">\ud83c\udf89 Withdrawal Request Submitted!</p>
                </motion.div>
             )}
 
@@ -925,7 +933,7 @@ export default function App() {
                                  'bg-red-500/10 text-red-500'}`}
                              >
                                 <span className="w-1 h-1 rounded-full bg-current shadow-[0_0_5px_currentColor]" />
-                                {item.status === 'Success' ? 'Success ✅' : item.status}
+                                {item.status === 'Success' ? 'Success \u2705' : item.status}
                              </div>
                           </div>
                        </div>
