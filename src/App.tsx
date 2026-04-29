@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { 
   MonitorPlay, 
@@ -115,6 +115,7 @@ export default function App() {
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawalHistory, setWithdrawalHistory] = useState<WithdrawalHistory[]>([]);
   const [withdrawalSuccess, setWithdrawalSuccess] = useState(false);
+  const isRegistering = useRef(false);
 
   // Initialize Telegram & Data
   useEffect(() => {
@@ -123,13 +124,31 @@ export default function App() {
     let unsubscribeHistory: (() => void) | undefined;
 
     const extractStartParam = (tg: any) => {
+      // Priority 1: initDataUnsafe (often available for Mini Apps)
       if (tg.initDataUnsafe?.start_param) return tg.initDataUnsafe.start_param;
+      
+      // Priority 2: Extract from raw initData string
       try {
-        const urlParams = new URLSearchParams(tg.initData);
-        return urlParams.get('start_param');
+        if (tg.initData) {
+          const urlParams = new URLSearchParams(tg.initData);
+          const fromInit = urlParams.get('start_param');
+          if (fromInit) return fromInit;
+        }
       } catch (e) {
-        return null;
+        console.warn("InitData parsing failed", e);
       }
+      
+      // Priority 3: Check window location (fallback)
+      try {
+        const hashParams = new URLSearchParams(window.location.hash.slice(1));
+        const tgWebAppData = hashParams.get('tgWebAppData');
+        if (tgWebAppData) {
+          const dataParams = new URLSearchParams(tgWebAppData);
+          return dataParams.get('start_param');
+        }
+      } catch (e) {}
+      
+      return null;
     };
 
     const init = async () => {
@@ -175,39 +194,51 @@ export default function App() {
         unsubscribeProfile = onSnapshot(doc(db, userDocPath), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
-              setProfile({
-                telegramId: data.telegramId || 0,
-                username: data.username || 'User',
-                adsWatched: data.adsWatched || 0,
-                balance: data.balance || 0,
-                dailyStreak: data.dailyStreak || 0,
-                lastDailyClaim: data.lastDailyClaim,
-                tasksCompleted: data.tasksCompleted || [],
-                referralsCount: data.referralsCount || 0,
-                total_invites: data.total_invites || 0,
-                consumedInvites: data.consumedInvites || 0,
-                referralEarnings: data.referralEarnings || 0,
-                invitedBy: data.invitedBy || null,
-                has_withdrawn: data.has_withdrawn || false,
-                adsSinceLastWithdrawal: data.adsSinceLastWithdrawal || 0
-              });
+            isRegistering.current = false; // Reset if doc exists
+            setProfile({
+              telegramId: data.telegramId || 0,
+              username: data.username || 'User',
+              adsWatched: data.adsWatched || 0,
+              balance: data.balance || 0,
+              dailyStreak: data.dailyStreak || 0,
+              lastDailyClaim: data.lastDailyClaim,
+              tasksCompleted: data.tasksCompleted || [],
+              referralsCount: data.referralsCount || 0,
+              total_invites: data.total_invites || 0,
+              consumedInvites: data.consumedInvites || 0,
+              referralEarnings: data.referralEarnings || 0,
+              invitedBy: data.invitedBy || null,
+              has_withdrawn: data.has_withdrawn || false,
+              adsSinceLastWithdrawal: data.adsSinceLastWithdrawal || 0
+            });
             setLoading(false);
           } else {
             // NEW USER REGISTRATION
+            if (isRegistering.current) return;
+            isRegistering.current = true;
+
             try {
               let inviterIdStr = null;
-              if (inviterIdFromParam && parseInt(inviterIdFromParam) !== user.id) {
+              const inviterIdFromParam = extractStartParam(tg);
+              const numericStartParam = inviterIdFromParam ? parseInt(inviterIdFromParam, 10) : NaN;
+              
+              console.log("Registration Check - Start Param:", inviterIdFromParam, "Numeric:", numericStartParam);
+
+              if (!isNaN(numericStartParam) && numericStartParam !== user.id) {
                 try {
+                  console.log("Attempting to find inviter with Telegram ID:", numericStartParam);
                   const inviterRef = collection(db, "users");
-                  const q = query(inviterRef, where("telegramId", "==", parseInt(inviterIdFromParam)), limit(1));
+                  const q = query(inviterRef, where("telegramId", "==", numericStartParam), limit(1));
                   const querySnapshot = await getDocs(q);
                   
                   if (!querySnapshot.empty) {
                     const inviterDoc = querySnapshot.docs[0];
                     inviterIdStr = inviterDoc.id;
                     
+                    console.log("Found inviter! UID:", inviterIdStr);
+
                     // Reward inviter ($0.30 USD)
-                    await updateDoc(doc(db, "users", inviterDoc.id), {
+                    await updateDoc(doc(db, "users", inviterIdStr), {
                       balance: increment(0.30),
                       referralsCount: increment(1),
                       total_invites: increment(1),
@@ -216,17 +247,19 @@ export default function App() {
                     });
 
                     // Track in sub-collection
-                    await setDoc(doc(db, `users/${inviterDoc.id}/referrals/${user.id}`), {
+                    await setDoc(doc(db, `users/${inviterIdStr}/referrals/${user.id}`), {
                       telegramId: user.id,
                       username: identity.username,
                       joinedAt: serverTimestamp()
                     });
                     
-                    tg.showAlert(`Welcome to @Madbottherbot! You were successfully referred and can now start earning.`);
-                    tg.HapticFeedback?.notificationOccurred('success');
+                    tg.showAlert(`Referral Active! You were invited by ${inviterDoc.data().username || 'a friend'}.`);
+                    console.log("Successfully rewarded inviter.");
+                  } else {
+                    console.log("Inviter not found in database for ID:", numericStartParam);
                   }
                 } catch (refErr) {
-                  console.error("Referral Error:", refErr);
+                  console.error("Referral Reward Exception:", refErr);
                 }
               }
               
@@ -247,17 +280,16 @@ export default function App() {
                 adsSinceLastWithdrawal: 0,
                 updatedAt: serverTimestamp()
               };
+              
               await setDoc(doc(db, userDocPath), initialProfile);
-            } catch (e) {
-              console.error("Registration Error", e);
-              setError("Failed to create profile. Try refreshing.");
-              setLoading(false);
+              console.log("User registered successfully");
+            } catch (regErr) {
+              console.error("Registration Error:", regErr);
+              isRegistering.current = false;
             }
           }
         }, (err) => {
-          console.error("Profile Snapshot Error", err);
-          setError("Database connection error. Try again later.");
-          setLoading(false);
+          handleFirestoreError(err, OperationType.GET, userDocPath);
         });
 
         // Withdrawal History Listener
