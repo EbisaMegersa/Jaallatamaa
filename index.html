@@ -21,38 +21,14 @@
         var _warn = console.warn;
         var _error = console.error;
         var filter = function(args, original) {
-          var found = false;
-          try {
-            for (var i = 0; i < args.length; i++) {
-              if (args[i] && typeof args[i] === 'string' && args[i].includes('CloudStorage is not supported')) {
-                found = true;
-                break;
-              }
-              if (args[i] instanceof Error && args[i].message && args[i].message.includes('CloudStorage is not supported')) {
-                found = true;
-                break;
-              }
-            }
-          } catch(e) {}
-          if (found) return;
+          if (args[0] && typeof args[0] === 'string' && args[0].includes('CloudStorage is not supported')) {
+            return;
+          }
           original.apply(console, args);
         };
         console.log = function() { filter(arguments, _log); };
         console.warn = function() { filter(arguments, _warn); };
         console.error = function() { filter(arguments, _error); };
-        
-        window.addEventListener('error', function(event) {
-          if (event.message && event.message.includes('CloudStorage is not supported')) {
-            event.preventDefault();
-            event.stopPropagation();
-          }
-        }, true);
-        window.addEventListener('unhandledrejection', function(event) {
-          if (event.reason && event.reason.message && event.reason.message.includes('CloudStorage is not supported')) {
-            event.preventDefault();
-            event.stopPropagation();
-          }
-        }, true);
 
         function applyPatch() {
           if (!window.Telegram) window.Telegram = {};

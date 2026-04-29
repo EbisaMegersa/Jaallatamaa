@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
   MonitorPlay, 
@@ -115,7 +115,6 @@ export default function App() {
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawalHistory, setWithdrawalHistory] = useState<WithdrawalHistory[]>([]);
   const [withdrawalSuccess, setWithdrawalSuccess] = useState(false);
-  const isRegistering = useRef(false);
 
   // Initialize Telegram & Data
   useEffect(() => {
@@ -124,31 +123,13 @@ export default function App() {
     let unsubscribeHistory: (() => void) | undefined;
 
     const extractStartParam = (tg: any) => {
-      // Priority 1: initDataUnsafe (often available for Mini Apps)
       if (tg.initDataUnsafe?.start_param) return tg.initDataUnsafe.start_param;
-      
-      // Priority 2: Extract from raw initData string
       try {
-        if (tg.initData) {
-          const urlParams = new URLSearchParams(tg.initData);
-          const fromInit = urlParams.get('start_param');
-          if (fromInit) return fromInit;
-        }
+        const urlParams = new URLSearchParams(tg.initData);
+        return urlParams.get('start_param');
       } catch (e) {
-        console.warn("InitData parsing failed", e);
+        return null;
       }
-      
-      // Priority 3: Check window location (fallback)
-      try {
-        const hashParams = new URLSearchParams(window.location.hash.slice(1));
-        const tgWebAppData = hashParams.get('tgWebAppData');
-        if (tgWebAppData) {
-          const dataParams = new URLSearchParams(tgWebAppData);
-          return dataParams.get('start_param');
-        }
-      } catch (e) {}
-      
-      return null;
     };
 
     const init = async () => {
@@ -194,72 +175,58 @@ export default function App() {
         unsubscribeProfile = onSnapshot(doc(db, userDocPath), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
-            isRegistering.current = false; // Reset if doc exists
-            setProfile({
-              telegramId: data.telegramId || 0,
-              username: data.username || 'User',
-              adsWatched: data.adsWatched || 0,
-              balance: data.balance || 0,
-              dailyStreak: data.dailyStreak || 0,
-              lastDailyClaim: data.lastDailyClaim,
-              tasksCompleted: data.tasksCompleted || [],
-              referralsCount: data.referralsCount || 0,
-              total_invites: data.total_invites || 0,
-              consumedInvites: data.consumedInvites || 0,
-              referralEarnings: data.referralEarnings || 0,
-              invitedBy: data.invitedBy || null,
-              has_withdrawn: data.has_withdrawn || false,
-              adsSinceLastWithdrawal: data.adsSinceLastWithdrawal || 0
-            });
+              setProfile({
+                telegramId: data.telegramId || 0,
+                username: data.username || 'User',
+                adsWatched: data.adsWatched || 0,
+                balance: data.balance || 0,
+                dailyStreak: data.dailyStreak || 0,
+                lastDailyClaim: data.lastDailyClaim,
+                tasksCompleted: data.tasksCompleted || [],
+                referralsCount: data.referralsCount || 0,
+                total_invites: data.total_invites || 0,
+                consumedInvites: data.consumedInvites || 0,
+                referralEarnings: data.referralEarnings || 0,
+                invitedBy: data.invitedBy || null,
+                has_withdrawn: data.has_withdrawn || false,
+                adsSinceLastWithdrawal: data.adsSinceLastWithdrawal || 0
+              });
             setLoading(false);
           } else {
             // NEW USER REGISTRATION
-            if (isRegistering.current) return;
-            isRegistering.current = true;
-
             try {
               let inviterIdStr = null;
-              const inviterIdFromParam = extractStartParam(tg);
-              const numericStartParam = inviterIdFromParam ? parseInt(inviterIdFromParam, 10) : NaN;
-              
-              console.log("Registration Check - Start Param:", inviterIdFromParam, "Numeric:", numericStartParam);
-
-              if (!isNaN(numericStartParam) && numericStartParam !== user.id) {
+              if (inviterIdFromParam && parseInt(inviterIdFromParam) !== user.id) {
                 try {
-                  console.log("Attempting to find inviter with Telegram ID:", numericStartParam);
                   const inviterRef = collection(db, "users");
-                  const q = query(inviterRef, where("telegramId", "==", numericStartParam), limit(1));
+                  const q = query(inviterRef, where("telegramId", "==", parseInt(inviterIdFromParam)), limit(1));
                   const querySnapshot = await getDocs(q);
                   
                   if (!querySnapshot.empty) {
                     const inviterDoc = querySnapshot.docs[0];
                     inviterIdStr = inviterDoc.id;
                     
-                    console.log("Found inviter! UID:", inviterIdStr);
-
-                    // Reward inviter ($0.35 USD)
-                    await updateDoc(doc(db, "users", inviterIdStr), {
-                      balance: increment(0.35),
+                    // Reward inviter ($0.30 USD)
+                    await updateDoc(doc(db, "users", inviterDoc.id), {
+                      balance: increment(0.30),
                       referralsCount: increment(1),
                       total_invites: increment(1),
-                      referralEarnings: increment(0.35),
+                      referralEarnings: increment(0.30),
                       updatedAt: serverTimestamp()
                     });
 
                     // Track in sub-collection
-                    await setDoc(doc(db, `users/${inviterIdStr}/referrals/${user.id}`), {
+                    await setDoc(doc(db, `users/${inviterDoc.id}/referrals/${user.id}`), {
                       telegramId: user.id,
                       username: identity.username,
                       joinedAt: serverTimestamp()
                     });
                     
-                    tg.showAlert(`Referral Active! You were invited by ${inviterDoc.data().username || 'a friend'}.`);
-                    console.log("Successfully rewarded inviter.");
-                  } else {
-                    console.log("Inviter not found in database for ID:", numericStartParam);
+                    tg.showAlert(`Welcome to @Madbottherbot! You were successfully referred and can now start earning.`);
+                    tg.HapticFeedback?.notificationOccurred('success');
                   }
                 } catch (refErr) {
-                  console.error("Referral Reward Exception:", refErr);
+                  console.error("Referral Error:", refErr);
                 }
               }
               
@@ -280,16 +247,17 @@ export default function App() {
                 adsSinceLastWithdrawal: 0,
                 updatedAt: serverTimestamp()
               };
-              
               await setDoc(doc(db, userDocPath), initialProfile);
-              console.log("User registered successfully");
-            } catch (regErr) {
-              console.error("Registration Error:", regErr);
-              isRegistering.current = false;
+            } catch (e) {
+              console.error("Registration Error", e);
+              setError("Failed to create profile. Try refreshing.");
+              setLoading(false);
             }
           }
         }, (err) => {
-          handleFirestoreError(err, OperationType.GET, userDocPath);
+          console.error("Profile Snapshot Error", err);
+          setError("Database connection error. Try again later.");
+          setLoading(false);
         });
 
         // Withdrawal History Listener
@@ -653,20 +621,20 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen pb-28 bg-[#0F172A] font-sans selection:bg-blue-500/30 overflow-x-hidden text-slate-200">
+    <div className="min-h-screen pb-28 bg-[#0D121F] font-sans selection:bg-[#EF4444]/30 overflow-x-hidden">
       {/* Header Section */}
-      <header className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-slate-800/50 bg-[#0F172A]/80 backdrop-blur-md sticky top-0 z-50">
+      <header className="px-6 pt-6 pb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-black text-white tracking-tight">
+          <h1 className="text-xl font-bold text-white tracking-tight">
             {activeTab === 'home' ? `Hello, ${userData?.username || 'User'}!` : activeTab === 'tasks' ? 'Tasks' : activeTab === 'invite' ? 'Invite' : activeTab === 'wallet' ? 'Withdraw' : 'Profile'}
           </h1>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <p className="text-sm text-[#A0AEC0] mt-0.5">
             {activeTab === 'home' ? "Let's earn some USD today!" : activeTab === 'tasks' ? "Complete tasks to earn more" : activeTab === 'wallet' ? "Cash out your earnings" : "Refer friends to get paid"}
           </p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-white/10 shadow-lg shadow-black/20 p-0.5">
-          <div className="w-full h-full rounded-full bg-[#0F172A] flex items-center justify-center">
-             <UserIcon className="w-5 h-5 text-slate-300" />
+        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#EF4444] to-[#991B1B] flex items-center justify-center border border-white/10 shadow-lg shadow-[#EF4444]/10 p-0.5">
+          <div className="w-full h-full rounded-full bg-[#0D121F] flex items-center justify-center">
+             <UserIcon className="w-5 h-5 text-white" />
           </div>
         </div>
       </header>
@@ -678,48 +646,44 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-slate-800 rounded-[32px] p-8 text-white border border-slate-700 shadow-2xl relative overflow-hidden"
+              className="gradient-card rounded-[24px] p-6 text-white shadow-xl shadow-[#EF4444]/10"
             >
               <div className="relative z-10">
-                <p className="text-sm font-semibold text-slate-400 uppercase tracking-widest">Available Balance</p>
-                <h2 className="text-5xl font-black mt-2 text-white tracking-tighter">
+                <p className="text-sm font-medium opacity-80 uppercase tracking-widest">Current Balance</p>
+                <h2 className="text-4xl font-extrabold mt-1 tracking-tight">
                   ${(profile?.balance || 0).toFixed(2)}
                 </h2>
                 
-                <div className="mt-8 grid grid-cols-3 gap-4 border-t border-slate-700 pt-6">
+                <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/20 pt-6">
                   <div className="text-center">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-wider">Today</p>
-                    <p className="text-sm font-black text-white mt-1">+$0.15</p>
+                    <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Total Friends</p>
+                    <p className="text-sm font-bold mt-1">{profile?.total_invites || 0}</p>
                   </div>
-                  <div className="text-center border-x border-slate-700 px-2">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-wider">Total Ads</p>
-                    <p className="text-sm font-black text-white mt-1">{profile?.adsWatched || 0}</p>
+                  <div className="text-center border-x border-white/10 px-2">
+                    <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Ads Watched</p>
+                    <p className="text-sm font-bold mt-1">{profile?.adsWatched || 0}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-wider">Total Invites</p>
-                    <p className="text-sm font-black text-white mt-1">{profile?.total_invites || 0}</p>
+                    <p className="text-[10px] uppercase font-bold opacity-60 tracking-wider">Tasks Done</p>
+                    <p className="text-sm font-bold mt-1">{profile?.tasksCompleted.length || 0}</p>
                   </div>
                 </div>
               </div>
-              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-[80px] -mr-16 -mt-16" />
             </motion.div>
 
             {/* Action Button */}
             <motion.button 
-              whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleWatchAd}
               disabled={isWatching}
-              className="w-full h-20 rounded-3xl bg-blue-600 hover:bg-blue-500 text-white font-black text-lg shadow-xl shadow-blue-900/20 disabled:opacity-50 transition-all flex items-center justify-center gap-4"
+              className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#EF4444] to-[#B91C1C] flex items-center justify-center gap-3 text-white font-bold shadow-lg shadow-[#EF4444]/20 disabled:opacity-70 disabled:cursor-not-allowed group transition-all"
             >
               {isWatching ? (
-                <Loader2 className="w-7 h-7 animate-spin" />
+                <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
-                <>
-                  <MonitorPlay className="w-7 h-7" />
-                  <span>WATCH AD & EARN $0.01</span>
-                </>
+                <Play className="w-5 h-5 fill-current" />
               )}
+              <span className="text-lg">{isWatching ? 'Watching...' : 'Watch Video Ad'}</span>
             </motion.button>
 
             {/* Daily Rewards Sneak Peek */}
@@ -739,17 +703,17 @@ export default function App() {
         ) : activeTab === 'tasks' ? (
           <div className="space-y-6">
             {/* Daily Check-in Card */}
-            <section className="bg-slate-800 rounded-3xl p-6 border border-slate-700 shadow-xl">
+            <section className="stats-card rounded-3xl p-6 bg-gradient-to-b from-white/[0.05] to-transparent">
                <div className="flex items-center justify-between mb-6">
                   <div>
-                    <h3 className="font-black text-white text-lg uppercase tracking-tight">Daily Streak</h3>
-                    <p className="text-xs text-slate-400">Claim your daily USD reward</p>
+                    <h3 className="font-bold text-base">Daily Check-in</h3>
+                    <p className="text-xs text-[#A0AEC0]">Claim your daily reward</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-bold text-blue-400">{profile?.dailyStreak}/7 Days</p>
-                    <div className="w-20 h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden">
+                    <p className="text-xs font-bold text-[#EF4444]">{profile?.dailyStreak}/7 Days</p>
+                    <div className="w-20 h-1.5 bg-white/10 rounded-full mt-1 overflow-hidden">
                        <div 
-                        className="h-full bg-blue-500" 
+                        className="h-full bg-[#EF4444]" 
                         style={{ width: `${((profile?.dailyStreak || 0) / 7) * 100}%` }}
                        />
                     </div>
@@ -765,13 +729,13 @@ export default function App() {
                    return (
                      <div key={day} className="flex flex-col items-center gap-2">
                         <div className={`w-full aspect-square rounded-xl flex items-center justify-center text-[10px] font-bold border transition-all
-                          ${isCompleted ? 'bg-blue-600 border-blue-600 text-white' : 
-                            isCurrent ? 'bg-blue-600/10 border-blue-600 text-blue-400 shadow-[0_0_10px_rgba(37,99,235,0.2)]' : 
-                            'bg-slate-700/50 border-slate-700 text-slate-500'}`}
+                          ${isCompleted ? 'bg-[#EF4444] border-[#EF4444] text-white' : 
+                            isCurrent ? 'bg-white/5 border-[#EF4444] text-[#EF4444] shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 
+                            'bg-white/5 border-white/10 text-[#A0AEC0]'}`}
                         >
-                          {isCompleted ? <Check className="w-4 h-4" /> : day}
+                          {isCompleted ? <Check className="w-4 h-4" /> : `Day ${day}`}
                         </div>
-                        <span className={`text-[8px] font-bold ${isCurrent ? 'text-blue-400' : 'text-slate-500'}`}>
+                        <span className={`text-[8px] font-bold ${isCurrent ? 'text-[#EF4444]' : 'text-[#A0AEC0]'}`}>
                           ${DAILY_REWARDS[i].toFixed(2)}
                         </span>
                      </div>
@@ -783,7 +747,7 @@ export default function App() {
                 whileTap={{ scale: 0.98 }}
                 onClick={handleDailyCheckIn}
                 disabled={isClaimingDaily}
-                className="w-full h-14 rounded-2xl bg-blue-600 text-white text-sm font-black shadow-lg shadow-blue-900/20 disabled:opacity-50 transition-all uppercase tracking-widest"
+                className="w-full py-3 rounded-xl bg-[#EF4444] text-white text-sm font-bold shadow-lg shadow-[#EF4444]/20 disabled:opacity-50"
                >
                  {isClaimingDaily ? 'Claiming...' : 'Claim Today\'s Reward'}
                </motion.button>
@@ -840,32 +804,32 @@ export default function App() {
             
             {/* Status Section */}
             <div className="grid grid-cols-1 gap-3">
-              <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 flex items-center justify-between">
+              <div className="stats-card rounded-2xl p-5 border border-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 ? 'bg-green-500/10 text-green-400' : 'bg-slate-700 text-slate-500'}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 ? 'bg-green-500/10 text-green-400' : 'bg-white/10 text-white/40'}`}>
                    {((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 ? <Check size={16} /> : <Users size={16} />}
                   </div>
                   <div>
                     <span className="text-xs font-bold block">Invites Available</span>
-                    <p className="text-[10px] text-slate-500 uppercase font-medium">For next withdrawal</p>
+                    <p className="text-[10px] opacity-40 uppercase font-medium">For next withdrawal</p>
                   </div>
                 </div>
-                <span className={`text-xs font-black ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= (profile?.has_withdrawn ? 10 : 20) ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-black ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= (profile?.has_withdrawn ? 10 : 20) ? 'text-green-400' : 'text-[#EF4444]'}`}>
                   {Math.max(0, (profile?.total_invites || 0) - (profile?.consumedInvites || 0))}/{profile?.has_withdrawn ? 10 : 20}
                 </span>
               </div>
               
-              <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700 flex items-center justify-between">
+              <div className="stats-card rounded-2xl p-5 border border-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${(profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25) ? 'bg-green-500/10 text-green-400' : 'bg-slate-700 text-slate-500'}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${(profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25) ? 'bg-green-500/10 text-green-400' : 'bg-white/10 text-[#A0AEC0]'}`}>
                    {(profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25) ? <Check size={16} /> : <MonitorPlay size={16} />}
                   </div>
                   <div className="flex flex-col">
                     <span className="text-xs font-bold">{profile?.has_withdrawn ? 'Next Ads Task' : 'Ads Requirement'}</span>
-                    <p className="text-[9px] text-slate-500 uppercase font-medium">{profile?.has_withdrawn ? 'Needed for next: 10' : 'Required: 25'}</p>
+                    <p className="text-[9px] opacity-40 uppercase font-medium">{profile?.has_withdrawn ? 'Needed for next: 10' : 'Required: 25'}</p>
                   </div>
                 </div>
-                <span className={`text-xs font-black ${(profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25) ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-black ${(profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25) ? 'text-green-400' : 'text-[#EF4444]'}`}>
                   {profile?.adsSinceLastWithdrawal || 0}/{profile?.has_withdrawn ? 10 : 25}
                 </span>
               </div>
@@ -1035,83 +999,83 @@ export default function App() {
 
         ) : activeTab === 'profile' ? (
           <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white px-2 uppercase tracking-tight">Account</h2>
-            <div className="bg-slate-800 rounded-[32px] p-8 border border-slate-700 relative overflow-hidden shadow-2xl">
+            <h2 className="text-2xl font-black text-white px-2">Profile</h2>
+            <div className="bg-white/5 rounded-[32px] p-8 border border-white/10 relative overflow-hidden">
               <div className="relative z-10">
                 <div className="flex items-center gap-6 mb-10">
-                  <div className="w-20 h-20 rounded-[24px] bg-blue-600 flex items-center justify-center text-3xl font-black text-white shadow-xl shadow-blue-900/40 border border-white/10">
+                  <div className="w-20 h-20 rounded-[24px] bg-gradient-to-tr from-[#EF4444] to-[#991B1B] flex items-center justify-center text-3xl font-black text-white shadow-xl shadow-[#EF4444]/20">
                     {userData?.username?.[0]?.toUpperCase() || 'U'}
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">{userData?.username || 'User'}</h3>
-                    <p className="text-xs text-blue-400 font-bold mt-1 tracking-widest uppercase">Elite Member</p>
+                    <h3 className="text-2xl font-black text-white">{userData?.username || 'User'}</h3>
+                    <p className="text-xs text-[#EF4444] font-bold mt-1 tracking-wider uppercase">Active Member</p>
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-3 mb-8">
-                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-700/50">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Balance</p>
-                    <p className="text-xl font-black text-white mt-1 leading-none font-mono">${(profile?.balance || 0).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,')}</p>
+                  <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
+                    <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Balance</p>
+                    <p className="text-xl font-black text-white mt-1">${(profile?.balance || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-700/50">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Invites</p>
-                    <p className="text-xl font-black text-white mt-1 leading-none font-mono">{profile?.total_invites || 0}</p>
+                  <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
+                    <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Invites</p>
+                    <p className="text-xl font-black text-white mt-1">{profile?.total_invites || 0}</p>
                   </div>
-                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-700/50">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Ads</p>
-                    <p className="text-xl font-black text-white mt-1 leading-none font-mono">{profile?.adsWatched || 0}</p>
+                  <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
+                    <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Total Ads</p>
+                    <p className="text-xl font-black text-white mt-1">{profile?.adsWatched || 0}</p>
                   </div>
-                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-700/50 border-b-2 border-b-blue-500/50">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Earned</p>
-                    <p className="text-xl font-black text-blue-400 mt-1 leading-none font-mono">${(profile?.referralEarnings || 0).toFixed(2)}</p>
+                  <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
+                    <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Earnings</p>
+                    <p className="text-xl font-black text-[#EF4444] mt-1">${(profile?.referralEarnings || 0).toFixed(2)}</p>
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center p-5 bg-slate-900 rounded-2xl border border-slate-700/50">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Telegram ID</span>
-                    <span className="text-sm font-mono text-white/50">{userData?.id}</span>
+                  <div className="flex justify-between items-center p-5 bg-black/30 rounded-2xl border border-white/5">
+                    <span className="text-xs font-bold opacity-40 uppercase tracking-widest text-[#A0AEC0]">Telegram ID</span>
+                    <span className="text-sm font-mono text-white">{userData?.id}</span>
                   </div>
                 </div>
               </div>
               
-              <div className="absolute -right-20 -top-20 w-48 h-48 bg-blue-600/5 rounded-full blur-3xl" />
+              <div className="absolute -right-20 -top-20 w-48 h-48 bg-[#EF4444]/10 rounded-full blur-3xl" />
             </div>
 
             {/* FAQ Section */}
-            <div className="bg-slate-800/50 rounded-[32px] p-8 border border-slate-700/50 space-y-6">
-              <h4 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-3">
-                <Bell size={18} className="text-blue-500" />
-                Help Center
+            <div className="stats-card rounded-[32px] p-6 space-y-4">
+              <h4 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
+                <Bell size={18} className="text-[#EF4444]" />
+                Frequently Asked Questions
               </h4>
               
-              <div className="space-y-4">
-                <details className="group bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden transition-all shadow-sm">
-                  <summary className="p-5 text-xs font-black text-slate-300 cursor-pointer list-none flex justify-between items-center hover:bg-slate-800 transition-colors uppercase tracking-widest">
+              <div className="space-y-3">
+                <details className="group bg-white/5 rounded-2xl border border-white/5 overflow-hidden transition-all">
+                  <summary className="p-4 text-xs font-bold text-white/80 cursor-pointer list-none flex justify-between items-center hover:bg-white/5 transition-colors">
                     How do I earn USD?
-                    <ChevronRight size={14} className="group-open:rotate-90 transition-transform text-slate-500" />
+                    <Play size={10} className="rotate-90 group-open:rotate-270 transition-transform" />
                   </summary>
-                  <div className="p-5 pt-0 text-[11px] text-slate-400 leading-relaxed font-medium">
-                    You earn real USD by watching short video ads ($0.01/ad) and completing daily tasks. You can also refer friends to earn a massive $0.35 per referral.
+                  <div className="p-4 pt-0 text-[11px] text-[#A0AEC0] leading-relaxed">
+                    You earn real USD by watching short video ads ($0.01/ad) and completing daily tasks. You can also refer friends to earn a massive $0.30 per referral.
                   </div>
                 </details>
 
-                <details className="group bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden transition-all shadow-sm">
-                  <summary className="p-5 text-xs font-black text-slate-300 cursor-pointer list-none flex justify-between items-center hover:bg-slate-800 transition-colors uppercase tracking-widest">
-                    Withdrawal limits?
-                    <ChevronRight size={14} className="group-open:rotate-90 transition-transform text-slate-500" />
+                <details className="group bg-white/5 rounded-2xl border border-white/5 overflow-hidden transition-all">
+                  <summary className="p-4 text-xs font-bold text-white/80 cursor-pointer list-none flex justify-between items-center hover:bg-white/5 transition-colors">
+                    What are the withdrawal limits?
+                    <Play size={10} className="rotate-90 group-open:rotate-270 transition-transform" />
                   </summary>
-                  <div className="p-5 pt-0 text-[11px] text-slate-400 leading-relaxed font-medium">
+                  <div className="p-4 pt-0 text-[11px] text-[#A0AEC0] leading-relaxed">
                     Minimum withdrawal is $10.00 USD. First withdrawal requires 20 referrals and 25 ad views. Every following withdrawal requires 10 referrals and 10 ad views since the previous success.
                   </div>
                 </details>
 
-                <details className="group bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden transition-all shadow-sm">
-                  <summary className="p-5 text-xs font-black text-slate-300 cursor-pointer list-none flex justify-between items-center hover:bg-slate-800 transition-colors uppercase tracking-widest">
-                    Payment speed?
-                    <ChevronRight size={14} className="group-open:rotate-90 transition-transform text-slate-500" />
+                <details className="group bg-white/5 rounded-2xl border border-white/5 overflow-hidden transition-all">
+                  <summary className="p-4 text-xs font-bold text-white/80 cursor-pointer list-none flex justify-between items-center hover:bg-white/5 transition-colors">
+                    When do I receive my payment?
+                    <Play size={10} className="rotate-90 group-open:rotate-270 transition-transform" />
                   </summary>
-                  <div className="p-5 pt-0 text-[11px] text-slate-400 leading-relaxed font-medium">
+                  <div className="p-4 pt-0 text-[11px] text-[#A0AEC0] leading-relaxed">
                     Our system processes withdrawals with a randomized 2 to 6 hours verification delay. Once verified, the status in your history will change to Success and funds are dispatched.
                   </div>
                 </details>
@@ -1122,16 +1086,16 @@ export default function App() {
                 href="https://t.me/yeman1th"
                 target="_blank"
                 rel="noreferrer"
-                className="w-full h-16 rounded-2xl bg-slate-800 border border-slate-700 text-white font-black text-sm flex items-center justify-center gap-3 hover:bg-slate-700 transition-all shadow-xl uppercase tracking-widest"
+                className="w-full h-14 mt-4 rounded-2xl bg-white/5 border border-white/10 text-white font-bold flex items-center justify-center gap-3 hover:bg-white/10 transition-all"
               >
-                <ExternalLink size={18} className="text-blue-500" />
-                Contact Support
+                <ExternalLink size={18} className="text-[#EF4444]" />
+                NEED HELP? READ FAQ & CONTACT
               </motion.a>
             </div>
             
             <button 
               onClick={() => (window as any).Telegram?.WebApp?.close()}
-              className="w-full h-16 rounded-2xl bg-slate-900 border border-slate-700 text-slate-400 font-black text-sm hover:bg-slate-800 transition-colors uppercase tracking-widest"
+              className="w-full h-16 rounded-2xl bg-white/5 border border-white/10 text-white font-black hover:bg-white/10 transition-colors"
             >
               EXIT MINI APP
             </button>
@@ -1142,32 +1106,32 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-slate-800 rounded-[32px] p-8 text-white relative overflow-hidden border border-slate-700 shadow-2xl"
+              className="gradient-card rounded-[32px] p-8 text-white relative overflow-hidden"
             >
                <div className="relative z-10 flex flex-col items-center text-center">
-                  <div className="w-24 h-24 rounded-3xl bg-blue-600/20 flex items-center justify-center mb-6 border border-blue-500/20 shadow-xl">
-                    <Gift className="w-12 h-12 text-blue-500" />
+                  <div className="w-20 h-20 rounded-3xl bg-white/10 flex items-center justify-center mb-6 backdrop-blur-xl border border-white/20 shadow-2xl">
+                    <Gift className="w-10 h-10 text-white" />
                   </div>
-                  <h2 className="text-3xl font-black mb-2 tracking-tight">Refer & Earn</h2>
-                  <p className="text-sm text-slate-400 max-w-[240px] leading-relaxed mx-auto">
-                    Invite a friend and earn <span className="text-blue-400 font-bold">$0.35 instantly!</span>
+                  <h2 className="text-3xl font-black mb-2 tracking-tight">Invite & Earn</h2>
+                  <p className="text-sm opacity-80 max-w-[240px] leading-relaxed mx-auto">
+                    Earn <span className="text-white font-bold">$0.30 USD</span> for every friend who starts earning with us
                   </p>
                   
                   <div className="grid grid-cols-2 gap-4 w-full mt-10">
-                    <div className="bg-slate-900 rounded-2xl p-5 border border-slate-700/50 shadow-inner">
-                      <p className="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em]">Referrals</p>
-                      <p className="text-3xl font-black mt-2 leading-none text-white">{profile?.total_invites || 0}</p>
+                    <div className="bg-black/30 backdrop-blur-md rounded-2xl p-5 border border-white/5 shadow-inner">
+                      <p className="text-[10px] uppercase font-black opacity-40 tracking-[0.2em]">Referrals</p>
+                      <p className="text-3xl font-black mt-2 leading-none">{profile?.total_invites || 0}</p>
                     </div>
-                    <div className="bg-slate-900 rounded-2xl p-5 border border-slate-700/50 shadow-inner">
-                      <p className="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em]">Earnings</p>
-                      <p className="text-3xl font-black mt-2 text-blue-500 leading-none">${(profile?.referralEarnings || 0).toFixed(2)}</p>
+                    <div className="bg-black/30 backdrop-blur-md rounded-2xl p-5 border border-white/5 shadow-inner">
+                      <p className="text-[10px] uppercase font-black opacity-40 tracking-[0.2em]">Earnings</p>
+                      <p className="text-3xl font-black mt-2 text-[#EF4444] leading-none">${(profile?.referralEarnings || 0).toFixed(2)}</p>
                     </div>
                   </div>
                </div>
 
                {/* Modern Decorative Blurs */}
-               <div className="absolute -right-16 -top-16 w-48 h-48 bg-blue-600/10 rounded-full blur-[60px]" />
-               <div className="absolute -left-16 -bottom-16 w-48 h-48 bg-indigo-600/10 rounded-full blur-[60px]" />
+               <div className="absolute -right-16 -top-16 w-48 h-48 bg-[#06B6D4]/30 rounded-full blur-[60px]" />
+               <div className="absolute -left-16 -bottom-16 w-48 h-48 bg-[#10B981]/30 rounded-full blur-[60px]" />
             </motion.div>
 
             {/* Invite Actions Section */}
@@ -1175,18 +1139,18 @@ export default function App() {
               {/* Copy Link Component */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between px-1">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.15em]">Your Unique Link</label>
-                  <span className="text-[10px] text-blue-400 font-bold">Earn $0.35 USD per friend!</span>
+                  <label className="text-[10px] font-black text-[#A0AEC0] uppercase tracking-[0.15em]">Your Unique Link</label>
+                  <span className="text-[10px] text-[#EF4444] font-bold">Earn $0.30 USD per friend!</span>
                 </div>
                 <div className="relative group">
                   <input 
                     readOnly 
                     value={referralLink}
-                    className="w-full h-16 bg-slate-900 border border-slate-700 rounded-2xl px-6 text-xs text-white pr-16 focus:outline-none focus:border-blue-500 transition-all font-mono"
+                    className="w-full h-16 bg-white/5 border border-white/10 rounded-2xl px-6 text-xs text-white pr-16 focus:outline-none focus:border-[#06B6D4]/50 transition-all font-mono"
                   />
                   <button 
                     onClick={handleCopyLink}
-                    className="absolute right-2.5 top-2.5 bottom-2.5 w-11 bg-blue-600 rounded-xl flex items-center justify-center text-white active:scale-95 transition-all shadow-lg shadow-blue-900/40 hover:bg-blue-500"
+                    className="absolute right-2.5 top-2.5 bottom-2.5 w-11 bg-[#06B6D4] rounded-xl flex items-center justify-center text-white active:scale-95 transition-all shadow-lg shadow-[#06B6D4]/20 hover:bg-[#0891B2]"
                   >
                     <Copy size={18} />
                   </button>
@@ -1198,7 +1162,7 @@ export default function App() {
                 <motion.button
                   whileTap={{ scale: 0.98 }}
                   onClick={handleShare}
-                  className="w-full h-16 rounded-2xl bg-white text-slate-900 font-black flex items-center justify-center gap-4 shadow-xl shadow-black/20 hover:bg-slate-100 transition-colors"
+                  className="w-full h-16 rounded-2xl bg-white text-black font-black flex items-center justify-center gap-4 shadow-[0_10px_30px_rgba(255,255,255,0.1)] hover:bg-[#F3F4F6] transition-colors"
                 >
                   <Share2 size={24} />
                   <span>SEND TO FRIENDS</span>
@@ -1207,14 +1171,14 @@ export default function App() {
 
               {/* Trust/Tutorial Cards */}
               <div className="grid grid-cols-1 gap-4 text-left">
-                <div className="bg-slate-800 rounded-[24px] p-6 border border-slate-700 flex gap-4 items-start">
-                   <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center shrink-0">
-                     <CheckCircle2 size={20} className="text-blue-500" />
+                <div className="stats-card rounded-[24px] p-6 border border-white/5 flex gap-4 items-start">
+                   <div className="w-10 h-10 rounded-full bg-[#06B6D4]/10 flex items-center justify-center shrink-0">
+                     <CheckCircle2 size={20} className="text-[#06B6D4]" />
                    </div>
                    <div>
-                     <h5 className="font-bold text-sm mb-1 text-white uppercase tracking-tight">Verified Tracking</h5>
-                     <p className="text-xs text-slate-400 leading-relaxed">
-                       Our system verifies every referral instantly using deep-link technology. You get paid $0.35 USD the moment they open the app.
+                     <h5 className="font-bold text-sm mb-1 text-white">Verified Tracking</h5>
+                     <p className="text-xs text-[#A0AEC0] leading-relaxed">
+                       Our system verifies every referral instantly using deep-link technology. You get paid $0.30 USD the moment they open the app.
                      </p>
                    </div>
                 </div>
@@ -1242,18 +1206,18 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   return (
     <button 
       onClick={onClick}
-      className={`flex flex-col items-center gap-1 transition-all group relative ${active ? 'text-blue-500' : 'text-slate-500'}`}
+      className={`flex flex-col items-center gap-1 transition-all group relative ${active ? 'text-[#EF4444]' : 'text-[#A0AEC0]'}`}
     >
-      <div className={`p-2 rounded-xl transition-all ${active ? 'bg-blue-600/10 scale-110 shadow-lg shadow-blue-500/10' : 'group-hover:bg-white/5'}`}>
+      <div className={`p-2 rounded-xl transition-all ${active ? 'bg-[#EF4444]/10 scale-110 shadow-lg shadow-[#EF4444]/10' : 'group-hover:bg-white/5'}`}>
         {React.cloneElement(icon as React.ReactElement, { size: 24, strokeWidth: active ? 2.5 : 2 })}
       </div>
-      <span className={`text-[10px] font-black uppercase tracking-widest ${active ? 'opacity-100' : 'opacity-40'}`}>
+      <span className={`text-[10px] font-bold uppercase tracking-widest ${active ? 'opacity-100' : 'opacity-40'}`}>
         {label}
       </span>
       {active && (
         <motion.div 
           layoutId="nav-pill"
-          className="w-1.5 h-1.5 rounded-full bg-blue-500 absolute -bottom-1"
+          className="w-1.5 h-1.5 rounded-full bg-[#EF4444] absolute -bottom-1"
         />
       )}
     </button>
