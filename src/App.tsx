@@ -54,7 +54,7 @@ interface WithdrawalHistory {
   createdAt: any;
 }
 
-const DAILY_REWARDS = [5, 10, 15, 20, 25, 30, 50]; // Points
+const DAILY_REWARDS = [0.05, 0.07, 0.10, 0.14, 0.18, 0.25, 0.30]; // USD
 
 // --- Error Handling ---
 enum OperationType {
@@ -206,12 +206,12 @@ export default function App() {
                     const inviterDoc = querySnapshot.docs[0];
                     inviterIdStr = inviterDoc.id;
                     
-                    // Reward inviter (50 pts)
+                    // Reward inviter ($0.30 USD)
                     await updateDoc(doc(db, "users", inviterDoc.id), {
-                      balance: increment(50),
+                      balance: increment(0.30),
                       referralsCount: increment(1),
                       total_invites: increment(1),
-                      referralEarnings: increment(50),
+                      referralEarnings: increment(0.30),
                       updatedAt: serverTimestamp()
                     });
 
@@ -303,7 +303,7 @@ export default function App() {
         await updateDoc(doc(db, userDocPath), {
           adsWatched: increment(1),
           adsSinceLastWithdrawal: increment(1),
-          balance: increment(2), // 2 points per ad
+          balance: increment(0.01), // $0.01 per ad
           updatedAt: serverTimestamp()
         });
         
@@ -375,7 +375,7 @@ export default function App() {
         (window as any).Telegram?.WebApp?.HapticFeedback?.impactOccurred('medium');
       } catch {}
 
-      alert(`Day ${newStreak} Claimed! Reward: ${reward} points`);
+      alert(`Day ${newStreak} Claimed! Reward: $${reward.toFixed(2)}`);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, userDocPath);
     } finally {
@@ -398,7 +398,7 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       await updateDoc(doc(db, userDocPath), {
-        balance: increment(5), // 5 points for joining channel
+        balance: increment(0.05), // $0.05 for joining channel
         tasksCompleted: [...profile.tasksCompleted, 'tg_join'],
         updatedAt: serverTimestamp()
       });
@@ -406,7 +406,7 @@ export default function App() {
       try {
         (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success');
       } catch {}
-      alert("Successfully verified! 5 points added to your balance.");
+      alert("Successfully verified! $0.05 added to your balance.");
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, userDocPath);
     } finally {
@@ -438,8 +438,8 @@ export default function App() {
     const amountNum = parseFloat(withdrawalAmount);
     
     // 1. Minimum Amount Check
-    if (isNaN(amountNum) || amountNum < 30) {
-      alert('Minimum withdrawal is 30 points.');
+    if (isNaN(amountNum) || amountNum < 10) {
+      alert('Minimum withdrawal is $10.00 USD.');
       return;
     }
 
@@ -451,13 +451,14 @@ export default function App() {
 
     // 3. Lock System Check
     const availableInvites = (profile.total_invites || 0) - (profile.consumedInvites || 0);
-    const meetsInvites = availableInvites >= 2;
+    const requiredInvites = profile.has_withdrawn ? 10 : 20;
+    const meetsInvites = availableInvites >= requiredInvites;
     const adRequirement = profile.has_withdrawn ? 10 : 25;
     const meetsAds = (profile.adsSinceLastWithdrawal || 0) >= adRequirement;
 
     if (!meetsInvites || !meetsAds) {
       if (!meetsInvites) {
-        alert(`You need 2 new invites for every withdrawal request. Available: ${availableInvites}/2`);
+        alert(`You need ${requiredInvites} new invites for your withdrawal request. Available: ${availableInvites}/${requiredInvites}`);
       } else {
         alert(`Requirement not met: You need ${adRequirement} ad views to unlock your next withdrawal. Current: ${profile.adsSinceLastWithdrawal}/${adRequirement}`);
       }
@@ -520,13 +521,20 @@ export default function App() {
       setWithdrawalAddress('');
       setWithdrawalUid('');
 
-      // Automated Transition after 60 seconds (1 minute)
+      // Randomized Success Timing: 2 to 6 hours (in seconds)
+      // 2 hours = 7200 seconds, 6 hours = 21600 seconds
+      const randomHours = Math.floor(Math.random() * (6 - 2 + 1) + 2);
+      const delayMs = randomHours * 60 * 60 * 1000;
+      
+      console.log(`Withdrawal scheduled to succeed in ${randomHours} hours.`);
+
+      // Backend Transition Simulation (Delayed update)
       setTimeout(async () => {
         try {
           const successBatch = writeBatch(db);
           successBatch.update(newWithdrawalDocRef, { status: 'Success' });
           successBatch.update(userDocRef, {
-            consumedInvites: increment(2),
+            consumedInvites: increment(requiredInvites),
             has_withdrawn: true,
             adsSinceLastWithdrawal: 0,
             updatedAt: serverTimestamp()
@@ -540,7 +548,7 @@ export default function App() {
         } catch (err) {
           console.error("Delayed Withdrawal Update Error:", err);
         }
-      }, 60000); // 1 minute delay
+      }, delayMs);
 
       // Auto hide success message banner after 5 seconds
       setTimeout(() => setWithdrawalSuccess(false), 5000);
@@ -613,7 +621,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen pb-28 bg-[#0D121F] font-sans selection:bg-[#06B6D4]/30 overflow-x-hidden">
+    <div className="min-h-screen pb-28 bg-[#0D121F] font-sans selection:bg-[#EF4444]/30 overflow-x-hidden">
       {/* Header Section */}
       <header className="px-6 pt-6 pb-4 flex items-center justify-between">
         <div>
@@ -621,10 +629,10 @@ export default function App() {
             {activeTab === 'home' ? `Hello, ${userData?.username || 'User'}!` : activeTab === 'tasks' ? 'Tasks' : activeTab === 'invite' ? 'Invite' : activeTab === 'wallet' ? 'Withdraw' : 'Profile'}
           </h1>
           <p className="text-sm text-[#A0AEC0] mt-0.5">
-            {activeTab === 'home' ? "Let's earn some points today!" : activeTab === 'tasks' ? "Complete tasks to earn more" : activeTab === 'wallet' ? "Cash out your earnings" : "Refer friends to get paid"}
+            {activeTab === 'home' ? "Let's earn some USD today!" : activeTab === 'tasks' ? "Complete tasks to earn more" : activeTab === 'wallet' ? "Cash out your earnings" : "Refer friends to get paid"}
           </p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#06B6D4] to-[#10B981] flex items-center justify-center border border-white/10 shadow-lg shadow-[#06B6D4]/10 p-0.5">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#EF4444] to-[#991B1B] flex items-center justify-center border border-white/10 shadow-lg shadow-[#EF4444]/10 p-0.5">
           <div className="w-full h-full rounded-full bg-[#0D121F] flex items-center justify-center">
              <UserIcon className="w-5 h-5 text-white" />
           </div>
@@ -638,12 +646,12 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="gradient-card rounded-[24px] p-6 text-white shadow-xl shadow-[#06B6D4]/10"
+              className="gradient-card rounded-[24px] p-6 text-white shadow-xl shadow-[#EF4444]/10"
             >
               <div className="relative z-10">
                 <p className="text-sm font-medium opacity-80 uppercase tracking-widest">Current Balance</p>
                 <h2 className="text-4xl font-extrabold mt-1 tracking-tight">
-                  {Math.floor(profile?.balance || 0)} points
+                  ${(profile?.balance || 0).toFixed(2)}
                 </h2>
                 
                 <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/20 pt-6">
@@ -668,7 +676,7 @@ export default function App() {
               whileTap={{ scale: 0.98 }}
               onClick={handleWatchAd}
               disabled={isWatching}
-              className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#06B6D4] to-[#0891B2] flex items-center justify-center gap-3 text-white font-bold shadow-lg shadow-[#06B6D4]/20 disabled:opacity-70 disabled:cursor-not-allowed group transition-all"
+              className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#EF4444] to-[#B91C1C] flex items-center justify-center gap-3 text-white font-bold shadow-lg shadow-[#EF4444]/20 disabled:opacity-70 disabled:cursor-not-allowed group transition-all"
             >
               {isWatching ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -680,14 +688,14 @@ export default function App() {
 
             {/* Daily Rewards Sneak Peek */}
             <section className="stats-card rounded-2xl p-4 flex items-center gap-4 cursor-pointer" onClick={() => setActiveTab('tasks')}>
-              <div className="w-12 h-12 rounded-xl bg-[#06B6D4]/10 flex items-center justify-center">
-                <Zap className="w-6 h-6 text-[#06B6D4]" />
+              <div className="w-12 h-12 rounded-xl bg-[#EF4444]/10 flex items-center justify-center">
+                <Zap className="w-6 h-6 text-[#EF4444]" />
               </div>
               <div className="flex-1">
                 <h4 className="font-bold text-sm">Daily Reward</h4>
                 <p className="text-xs text-[#A0AEC0]">Current Streak: {profile?.dailyStreak || 0} Days</p>
               </div>
-              <div className="px-3 py-1 rounded-full bg-[#06B6D4]/10 text-[#06B6D4] text-[10px] font-bold border border-[#06B6D4]/20 uppercase">
+              <div className="px-3 py-1 rounded-full bg-[#EF4444]/10 text-[#EF4444] text-[10px] font-bold border border-[#EF4444]/20 uppercase">
                  View Tasks
               </div>
             </section>
@@ -702,10 +710,10 @@ export default function App() {
                     <p className="text-xs text-[#A0AEC0]">Claim your daily reward</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-bold text-[#06B6D4]">{profile?.dailyStreak}/7 Days</p>
+                    <p className="text-xs font-bold text-[#EF4444]">{profile?.dailyStreak}/7 Days</p>
                     <div className="w-20 h-1.5 bg-white/10 rounded-full mt-1 overflow-hidden">
                        <div 
-                        className="h-full bg-[#06B6D4]" 
+                        className="h-full bg-[#EF4444]" 
                         style={{ width: `${((profile?.dailyStreak || 0) / 7) * 100}%` }}
                        />
                     </div>
@@ -721,14 +729,14 @@ export default function App() {
                    return (
                      <div key={day} className="flex flex-col items-center gap-2">
                         <div className={`w-full aspect-square rounded-xl flex items-center justify-center text-[10px] font-bold border transition-all
-                          ${isCompleted ? 'bg-[#06B6D4] border-[#06B6D4] text-white' : 
-                            isCurrent ? 'bg-white/5 border-[#06B6D4] text-[#06B6D4] shadow-[0_0_10px_rgba(6,182,212,0.2)]' : 
+                          ${isCompleted ? 'bg-[#EF4444] border-[#EF4444] text-white' : 
+                            isCurrent ? 'bg-white/5 border-[#EF4444] text-[#EF4444] shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 
                             'bg-white/5 border-white/10 text-[#A0AEC0]'}`}
                         >
                           {isCompleted ? <Check className="w-4 h-4" /> : `Day ${day}`}
                         </div>
-                        <span className={`text-[8px] font-bold ${isCurrent ? 'text-[#06B6D4]' : 'text-[#A0AEC0]'}`}>
-                          {DAILY_REWARDS[i]} pts
+                        <span className={`text-[8px] font-bold ${isCurrent ? 'text-[#EF4444]' : 'text-[#A0AEC0]'}`}>
+                          ${DAILY_REWARDS[i].toFixed(2)}
                         </span>
                      </div>
                    );
@@ -739,7 +747,7 @@ export default function App() {
                 whileTap={{ scale: 0.98 }}
                 onClick={handleDailyCheckIn}
                 disabled={isClaimingDaily}
-                className="w-full py-3 rounded-xl bg-[#06B6D4] text-white text-sm font-bold shadow-lg shadow-[#06B6D4]/20 disabled:opacity-50"
+                className="w-full py-3 rounded-xl bg-[#EF4444] text-white text-sm font-bold shadow-lg shadow-[#EF4444]/20 disabled:opacity-50"
                >
                  {isClaimingDaily ? 'Claiming...' : 'Claim Today\'s Reward'}
                </motion.button>
@@ -761,7 +769,7 @@ export default function App() {
                          <CheckCircle2 className="w-3 h-3 text-green-400" />
                        )}
                     </div>
-                    <p className="text-xs text-[#A0AEC0]">Reward: 5 points | Single Use</p>
+                    <p className="text-xs text-[#A0AEC0]">Reward: $0.05 | Single Use</p>
                   </div>
                   
                   {!profile?.tasksCompleted.includes('tg_join') ? (
@@ -770,7 +778,7 @@ export default function App() {
                         href="https://t.me/ebisa_emoji" 
                         target="_blank" 
                         rel="noreferrer"
-                        className="px-4 py-1.5 rounded-lg bg-[#06B6D4]/20 text-[#06B6D4] text-[10px] font-bold border border-[#06B6D4]/20 text-center flex items-center gap-1"
+                        className="px-4 py-1.5 rounded-lg bg-[#EF4444]/20 text-[#EF4444] text-[10px] font-bold border border-[#EF4444]/20 text-center flex items-center gap-1"
                       >
                          Join <ExternalLink size={10} />
                       </a>
@@ -806,8 +814,8 @@ export default function App() {
                     <p className="text-[10px] opacity-40 uppercase font-medium">For next withdrawal</p>
                   </div>
                 </div>
-                <span className={`text-xs font-black ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 ? 'text-green-400' : 'text-[#06B6D4]'}`}>
-                  {Math.max(0, (profile?.total_invites || 0) - (profile?.consumedInvites || 0))}/2
+                <span className={`text-xs font-black ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= (profile?.has_withdrawn ? 10 : 20) ? 'text-green-400' : 'text-[#EF4444]'}`}>
+                  {Math.max(0, (profile?.total_invites || 0) - (profile?.consumedInvites || 0))}/{profile?.has_withdrawn ? 10 : 20}
                 </span>
               </div>
               
@@ -845,7 +853,7 @@ export default function App() {
                 {withdrawalMethod && (
                   <div className="flex items-center gap-2">
                     <span className="text-[8px] font-bold text-white/40 uppercase">Selected:</span>
-                    <span className="text-[8px] font-black text-[#06B6D4] uppercase">{withdrawalMethod.replace('_', ' ')}</span>
+                    <span className="text-[8px] font-black text-[#EF4444] uppercase">{withdrawalMethod.replace('_', ' ')}</span>
                   </div>
                 )}
               </div>
@@ -859,7 +867,7 @@ export default function App() {
                   <button 
                     key={m.id}
                     onClick={() => setWithdrawalMethod(m.id)}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${withdrawalMethod === m.id ? 'bg-[#06B6D4]/10 border-[#06B6D4] shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-white/5 border-white/5'}`}
+                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${withdrawalMethod === m.id ? 'bg-[#EF4444]/10 border-[#EF4444] shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'bg-white/5 border-white/5'}`}
                   >
                     <img src={m.img} alt={m.label} className="w-6 h-6 object-contain" referrerPolicy="no-referrer" />
                     <span className="text-[8px] font-black uppercase text-center leading-tight whitespace-pre-wrap">{m.label}</span>
@@ -871,16 +879,16 @@ export default function App() {
             {/* Input Form */}
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-[#A0AEC0] uppercase tracking-[0.2em] ml-1">Amount (Min. 30 pts)</label>
+                <label className="text-[10px] font-black text-[#A0AEC0] uppercase tracking-[0.2em] ml-1">Amount (Min. $10.00)</label>
                 <div className="relative">
                   <input 
                     type="number"
                     value={withdrawalAmount}
                     onChange={(e) => setWithdrawalAmount(e.target.value)}
                     placeholder="E.g. 100"
-                    className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-sm text-white focus:outline-none focus:border-[#06B6D4]/50 transition-all"
+                    className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-5 text-sm text-white focus:outline-none focus:border-[#EF4444]/50 transition-all"
                   />
-                  <div className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#A0AEC0]">PTS</div>
+                  <div className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#A0AEC0]">USD</div>
                 </div>
               </div>
 
@@ -912,9 +920,9 @@ export default function App() {
             <motion.button
               whileTap={{ scale: 0.98 }}
               onClick={handleWithdraw}
-              disabled={isWithdrawing || !profile || profile.balance < 30}
+              disabled={isWithdrawing || !profile || profile.balance < 10}
               className={`w-full h-16 rounded-2xl font-black text-white shadow-lg transition-all flex items-center justify-center gap-3
-                ${(((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 && (profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25)) 
+                ${(((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= (profile?.has_withdrawn ? 10 : 20) && (profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25)) 
                   ? 'bg-gradient-to-r from-[#EF4444] to-[#991B1B] shadow-[#EF4444]/20' 
                   : 'bg-white/10 border border-white/5 text-white/20'}`}
             >
@@ -923,14 +931,14 @@ export default function App() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span>PROCESSING...</span>
                 </div>
-              ) : ((((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 && (profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25)) ? (
+              ) : ((((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= (profile?.has_withdrawn ? 10 : 20) && (profile?.adsSinceLastWithdrawal || 0) >= (profile?.has_withdrawn ? 10 : 25)) ? (
                 'WITHDRAW NOW'
               ) : (
                 <>
                   <Wallet size={20} />
                   <span>
-                    {((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) < 2 
-                      ? '2 INVITES REQUIRED' 
+                    {((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) < (profile?.has_withdrawn ? 10 : 20) 
+                      ? `${(profile?.has_withdrawn ? 10 : 20)} INVITES REQUIRED` 
                       : 'ADS WATCHED REQ.'}
                   </span>
                 </>
@@ -940,7 +948,7 @@ export default function App() {
             {/* History Section */}
             <div className="mt-12 space-y-4">
                <div className="flex items-center gap-2 px-2">
-                 <Clock size={16} className="text-[#06B6D4]" />
+                 <Clock size={16} className="text-[#EF4444]" />
                  <h3 className="text-lg font-black text-white uppercase tracking-tight">Withdrawal History</h3>
                </div>
 
@@ -965,7 +973,7 @@ export default function App() {
                                <img src={methodIcon} alt={item.method} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
                              </div>
                              <div>
-                               <p className="text-sm font-black text-white uppercase tracking-tight">{item.amount} PTS</p>
+                               <p className="text-sm font-black text-white uppercase tracking-tight">${item.amount.toFixed(2)}</p>
                                <p className="text-[9px] font-bold text-[#A0AEC0] uppercase opacity-60">
                                  {item.createdAt?.toMillis ? new Date(item.createdAt.toMillis()).toLocaleDateString() : 'Processing...'}
                                </p>
@@ -1007,7 +1015,7 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3 mb-8">
                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
                     <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Balance</p>
-                    <p className="text-xl font-black text-white mt-1">{Math.floor(profile?.balance || 0)}</p>
+                    <p className="text-xl font-black text-white mt-1">${(profile?.balance || 0).toFixed(2)}</p>
                   </div>
                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
                     <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Invites</p>
@@ -1018,8 +1026,8 @@ export default function App() {
                     <p className="text-xl font-black text-white mt-1">{profile?.adsWatched || 0}</p>
                   </div>
                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5">
-                    <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Current Ads</p>
-                    <p className="text-xl font-black text-[#EF4444] mt-1">{profile?.adsSinceLastWithdrawal || 0}</p>
+                    <p className="text-[10px] font-black opacity-40 uppercase tracking-widest text-[#A0AEC0]">Earnings</p>
+                    <p className="text-xl font-black text-[#EF4444] mt-1">${(profile?.referralEarnings || 0).toFixed(2)}</p>
                   </div>
                 </div>
 
@@ -1044,11 +1052,11 @@ export default function App() {
               <div className="space-y-3">
                 <details className="group bg-white/5 rounded-2xl border border-white/5 overflow-hidden transition-all">
                   <summary className="p-4 text-xs font-bold text-white/80 cursor-pointer list-none flex justify-between items-center hover:bg-white/5 transition-colors">
-                    How do I earn points?
+                    How do I earn USD?
                     <Play size={10} className="rotate-90 group-open:rotate-270 transition-transform" />
                   </summary>
                   <div className="p-4 pt-0 text-[11px] text-[#A0AEC0] leading-relaxed">
-                    You earn points by watching short video ads (2 pts/ad) and completing daily tasks. You can also refer friends to earn a massive 50 pts per referral.
+                    You earn real USD by watching short video ads ($0.01/ad) and completing daily tasks. You can also refer friends to earn a massive $0.30 per referral.
                   </div>
                 </details>
 
@@ -1058,7 +1066,7 @@ export default function App() {
                     <Play size={10} className="rotate-90 group-open:rotate-270 transition-transform" />
                   </summary>
                   <div className="p-4 pt-0 text-[11px] text-[#A0AEC0] leading-relaxed">
-                    Minimum withdrawal is 30 points. First withdrawal requires 25 ad views. Every following withdrawal requires 10 ad views since the previous success. You also need 2 fresh invites per withdrawal.
+                    Minimum withdrawal is $10.00 USD. First withdrawal requires 20 referrals and 25 ad views. Every following withdrawal requires 10 referrals and 10 ad views since the previous success.
                   </div>
                 </details>
 
@@ -1068,7 +1076,7 @@ export default function App() {
                     <Play size={10} className="rotate-90 group-open:rotate-270 transition-transform" />
                   </summary>
                   <div className="p-4 pt-0 text-[11px] text-[#A0AEC0] leading-relaxed">
-                    Our system processes withdrawals with a 1-minute safety delay. Once processed and verified, the status in your history will change to Success.
+                    Our system processes withdrawals with a randomized 2 to 6 hours verification delay. Once verified, the status in your history will change to Success and funds are dispatched.
                   </div>
                 </details>
               </div>
@@ -1106,7 +1114,7 @@ export default function App() {
                   </div>
                   <h2 className="text-3xl font-black mb-2 tracking-tight">Invite & Earn</h2>
                   <p className="text-sm opacity-80 max-w-[240px] leading-relaxed mx-auto">
-                    Earn <span className="text-white font-bold">50 points</span> for every friend who starts earning with us
+                    Earn <span className="text-white font-bold">$0.30 USD</span> for every friend who starts earning with us
                   </p>
                   
                   <div className="grid grid-cols-2 gap-4 w-full mt-10">
@@ -1116,7 +1124,7 @@ export default function App() {
                     </div>
                     <div className="bg-black/30 backdrop-blur-md rounded-2xl p-5 border border-white/5 shadow-inner">
                       <p className="text-[10px] uppercase font-black opacity-40 tracking-[0.2em]">Earnings</p>
-                      <p className="text-3xl font-black mt-2 text-[#06B6D4] leading-none">{Math.floor(profile?.referralEarnings || 0)} pts</p>
+                      <p className="text-3xl font-black mt-2 text-[#EF4444] leading-none">${(profile?.referralEarnings || 0).toFixed(2)}</p>
                     </div>
                   </div>
                </div>
@@ -1132,7 +1140,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between px-1">
                   <label className="text-[10px] font-black text-[#A0AEC0] uppercase tracking-[0.15em]">Your Unique Link</label>
-                  <span className="text-[10px] text-[#06B6D4] font-bold">Earn 50 points per friend!</span>
+                  <span className="text-[10px] text-[#EF4444] font-bold">Earn $0.30 USD per friend!</span>
                 </div>
                 <div className="relative group">
                   <input 
@@ -1170,7 +1178,7 @@ export default function App() {
                    <div>
                      <h5 className="font-bold text-sm mb-1 text-white">Verified Tracking</h5>
                      <p className="text-xs text-[#A0AEC0] leading-relaxed">
-                       Our system verifies every referral instantly using deep-link technology. You get paid 50 points the moment they open the app.
+                       Our system verifies every referral instantly using deep-link technology. You get paid $0.30 USD the moment they open the app.
                      </p>
                    </div>
                 </div>
