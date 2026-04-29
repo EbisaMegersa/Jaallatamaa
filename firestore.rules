@@ -17,6 +17,7 @@ service cloud.firestore {
         && data.username is string && data.username.size() <= 100
         && data.adsWatched is int && data.adsWatched >= 0
         && data.balance is number && data.balance >= 0
+        && (data.get('consumedInvites', 0) is int)
         && data.updatedAt == request.time
         && data.telegramId is int;
     }
@@ -25,8 +26,7 @@ service cloud.firestore {
       return data.keys().hasAll(['amount', 'method', 'status', 'createdAt', 'userId'])
         && data.amount is number && data.amount >= 30
         && data.method is string
-        && (data.status == 'Pending')
-        && data.createdAt == request.time
+        && (data.status == 'Pending' || data.status == 'Success')
         && data.userId == request.auth.uid;
     }
 
@@ -46,6 +46,11 @@ service cloud.firestore {
           && (incoming().referralEarnings == (existing().get('referralEarnings', 0.0) + 50))
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'referralsCount', 'total_invites', 'referralEarnings', 'updatedAt'])
+        )
+        || (
+          // Action: Status Flip / Invite Consumption
+          isOwner(userId)
+          && incoming().diff(existing()).affectedKeys().hasAny(['consumedInvites', 'updatedAt'])
         );
 
       match /referrals/{refId} {
@@ -55,7 +60,8 @@ service cloud.firestore {
 
       match /withdrawals/{withdrawalId} {
         allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidId(withdrawalId) && isValidWithdrawal(incoming());
+        allow create: if isOwner(userId) && isValidId(withdrawalId) && isValidWithdrawal(incoming()) && incoming().createdAt == request.time;
+        allow update: if isOwner(userId) && isValidWithdrawal(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
       }
     }
   }

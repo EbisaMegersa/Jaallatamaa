@@ -39,6 +39,7 @@ interface UserProfile {
   tasksCompleted: string[];
   referralsCount: number;
   total_invites: number;
+  consumedInvites: number;
   referralEarnings: number;
   invitedBy: string | null;
 }
@@ -166,19 +167,20 @@ export default function App() {
         unsubscribeProfile = onSnapshot(doc(db, userDocPath), async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
-            setProfile({
-              telegramId: data.telegramId || 0,
-              username: data.username || 'User',
-              adsWatched: data.adsWatched || 0,
-              balance: data.balance || 0,
-              dailyStreak: data.dailyStreak || 0,
-              lastDailyClaim: data.lastDailyClaim,
-              tasksCompleted: data.tasksCompleted || [],
-              referralsCount: data.referralsCount || 0,
-              total_invites: data.total_invites || 0,
-              referralEarnings: data.referralEarnings || 0,
-              invitedBy: data.invitedBy || null
-            });
+              setProfile({
+                telegramId: data.telegramId || 0,
+                username: data.username || 'User',
+                adsWatched: data.adsWatched || 0,
+                balance: data.balance || 0,
+                dailyStreak: data.dailyStreak || 0,
+                lastDailyClaim: data.lastDailyClaim,
+                tasksCompleted: data.tasksCompleted || [],
+                referralsCount: data.referralsCount || 0,
+                total_invites: data.total_invites || 0,
+                consumedInvites: data.consumedInvites || 0,
+                referralEarnings: data.referralEarnings || 0,
+                invitedBy: data.invitedBy || null
+              });
             setLoading(false);
           } else {
             // NEW USER REGISTRATION
@@ -228,6 +230,7 @@ export default function App() {
                 tasksCompleted: [],
                 referralsCount: 0,
                 total_invites: 0,
+                consumedInvites: 0,
                 referralEarnings: 0,
                 invitedBy: inviterIdStr,
                 updatedAt: serverTimestamp()
@@ -434,11 +437,16 @@ export default function App() {
     }
 
     // 3. Lock System Check
-    const meetsInvites = (profile.total_invites || 0) >= 2;
+    const availableInvites = (profile.total_invites || 0) - (profile.consumedInvites || 0);
+    const meetsInvites = availableInvites >= 2;
     const meetsAds = (profile.adsWatched || 0) >= 25;
 
     if (!meetsInvites || !meetsAds) {
-      alert('Requirement not met: You need 2 invites and 25 ad views to unlock withdrawals.');
+      if (!meetsInvites) {
+        alert(`You need 2 new invites for every withdrawal request. Available: ${availableInvites}/2`);
+      } else {
+        alert('Requirement not met: You need 25 ad views to unlock withdrawals.');
+      }
       try {
         (window as any).Telegram?.WebApp?.HapticFeedback?.notificationOccurred('error');
       } catch {}
@@ -489,6 +497,15 @@ export default function App() {
 
       // Ensure at least 5 seconds of processing state as requested
       await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Flip status to Success and Consume Invites
+      const successBatch = writeBatch(db);
+      successBatch.update(newWithdrawalDocRef, { status: 'Success' });
+      successBatch.update(userDocRef, {
+        consumedInvites: increment(2),
+        updatedAt: serverTimestamp()
+      });
+      await successBatch.commit();
 
       setWithdrawalSuccess(true);
       
@@ -731,13 +748,16 @@ export default function App() {
             <div className="grid grid-cols-1 gap-3">
               <div className="stats-card rounded-2xl p-5 border border-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${(profile?.total_invites || 0) >= 2 ? 'bg-green-500/10 text-green-400' : 'bg-white/10 text-[#A0AEC0]'}`}>
-                   {(profile?.total_invites || 0) >= 2 ? <Check size={16} /> : <Users size={16} />}
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 ? 'bg-green-500/10 text-green-400' : 'bg-white/10 text-white/40'}`}>
+                   {((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 ? <Check size={16} /> : <Users size={16} />}
                   </div>
-                  <span className="text-xs font-bold">Friends Invited</span>
+                  <div>
+                    <span className="text-xs font-bold block">Invites Available</span>
+                    <p className="text-[10px] opacity-40 uppercase font-medium">For next withdrawal</p>
+                  </div>
                 </div>
-                <span className={`text-xs font-black ${(profile?.total_invites || 0) >= 2 ? 'text-green-400' : 'text-[#06B6D4]'}`}>
-                  {profile?.total_invites || 0}/2
+                <span className={`text-xs font-black ${((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 ? 'text-green-400' : 'text-[#06B6D4]'}`}>
+                  {Math.max(0, (profile?.total_invites || 0) - (profile?.consumedInvites || 0))}/2
                 </span>
               </div>
               
@@ -841,7 +861,7 @@ export default function App() {
               onClick={handleWithdraw}
               disabled={isWithdrawing || !profile || profile.balance < 30}
               className={`w-full h-16 rounded-2xl font-black text-white shadow-lg transition-all flex items-center justify-center gap-3
-                ${((profile?.total_invites || 0) >= 2 && (profile?.adsWatched || 0) >= 25) 
+                ${(((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 && (profile?.adsWatched || 0) >= 25) 
                   ? 'bg-gradient-to-r from-[#06B6D4] to-[#10B981] shadow-[#06B6D4]/20' 
                   : 'bg-white/10 border border-white/5 text-white/20'}`}
             >
@@ -850,12 +870,16 @@ export default function App() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span>PROCESSING...</span>
                 </div>
-              ) : (((profile?.total_invites || 0) >= 2 && (profile?.adsWatched || 0) >= 25) ? (
+              ) : ((((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) >= 2 && (profile?.adsWatched || 0) >= 25) ? (
                 'WITHDRAW NOW'
               ) : (
                 <>
                   <Wallet size={20} />
-                  <span>REQUIREMENTS NOT MET</span>
+                  <span>
+                    {((profile?.total_invites || 0) - (profile?.consumedInvites || 0)) < 2 
+                      ? '2 INVITES REQUIRED' 
+                      : 'ADS WATCHED REQ.'}
+                  </span>
                 </>
               ))}
             </motion.button>
@@ -901,7 +925,7 @@ export default function App() {
                                  'bg-red-500/10 text-red-500'}`}
                              >
                                 <span className="w-1 h-1 rounded-full bg-current shadow-[0_0_5px_currentColor]" />
-                                {item.status}
+                                {item.status === 'Success' ? 'Success ✅' : item.status}
                              </div>
                           </div>
                        </div>
